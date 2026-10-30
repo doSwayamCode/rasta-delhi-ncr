@@ -1,0 +1,144 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { CHOICES, LABELS } from "@/lib/feedback";
+import type { LngLat } from "@/lib/geo";
+import type { MetroOption } from "@/lib/metro";
+import type { Mode } from "@/lib/routing";
+import type { ScoredRoute } from "@/lib/score";
+import { fmtDuration } from "./format";
+
+interface Props {
+  tripKey: string;
+  mode: Mode;
+  depart: string;
+  from: LngLat;
+  to: LngLat;
+  routes: ScoredRoute[];
+  metro: MetroOption | null;
+}
+
+let enabled: Promise<boolean> | null = null;
+const isEnabled = () =>
+  (enabled ??= fetch("/api/feedback").then((r) => r.json()).then((b) => Boolean(b.enabled)).catch(() => false));
+
+/**
+ * Two required taps and one optional, asked once per trip. Answers are anonymous (see
+ * app/api/feedback/route.ts) and are used to check the score's weights against what people
+ * actually choose and how streets feel to people who know them.
+ */
+export default function Feedback({ tripKey, mode, depart, from, to, routes, metro }: Props) {
+  const [on, setOn] = useState(false);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [priority, setPriority] = useState<string | null>(null);
+  const [feel, setFeel] = useState<string | null>(null);
+  const [state, setState] = useState<"ask" | "sending" | "done" | "hidden">("ask");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    isEnabled().then(setOn);
+  }, []);
+
+  useEffect(() => {
+    setChosen(null);
+    setPriority(null);
+    setFeel(null);
+    setError(null);
+    let seen = false;
+    try {
+      seen = sessionStorage.getItem(`rasta-fb:${tripKey}`) !== null;
+    } catch {
+      // storage unavailable: just ask
+    }
+    setState(seen ? "hidden" : "ask");
+  }, [tripKey]);
+
+  if (!on || state === "hidden") return null;
+  if (state === "done") return <div className="feedback done">Thanks, that helps tune the score.</div>;
+
+  const remember = () => {
+    try {
+      sessionStorage.setItem(`rasta-fb:${tripKey}`, "1");
+    } catch {
+      // ignore
+    }
+  };
+
+  const options = [
+    ...routes.map((r, i) => ({ id: `r${i}`, label: `Route ${i + 1}: ${fmtDuration(r.duration)}, score ${r.score ?? "–"}` })),
+    ...(metro ? [{ id: "metro", label: `Walk + metro: ~${fmtDuration(metro.duration)}` }] : []),
+    { id: "none", label: "None of these" },
+  ];
+
+  const submit = async () => {
+    setState("sending");
+    setError(null);
+    const summary = (r: { score: number | null; duration: number; components?: unknown }) => ({
+      score: r.score, duration: r.duration, components: r.components,
+    });
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mode, depart, from, to, chosen, priority, feel,
+          routes: routes.map(summary),
+          metro: metro ? { score: metro.score, duration: metro.duration } : null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Failed (${res.status})`);
+      remember();
+      setState("done");
+    } catch (e) {
+      setError((e as Error).message);
+      setState("ask");
+    }
+  };
+
+  // A plain render helper, not a component, so the buttons are not remounted on every tap.
+  const group = ({ name, value, set, items }: {
+    name: string; value: string | null; set: (v: string) => void; items: { id: string; label: string }[];
+  }) => (
+    <div className="fb-options" role="radiogroup" aria-label={name}>
+      {items.map((o) => (
+        <button
+          key={o.id} type="button" role="radio" aria-checked={value === o.id}
+          className={value === o.id ? "chip on" : "chip"} onClick={() => set(o.id)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <section className="feedback" aria-label="Quick feedback">
+      <div className="fb-head">
+        <strong>Help tune the score</strong>
+        <span className="muted">anonymous, 2 taps</span>
+        <button type="button" className="link" onClick={() => { remember(); setState("hidden"); }}>Not now</button>
+      </div>
+      <p className="fb-q">1. Which of these would you actually take?</p>
+      {group({ name: "Route you would take", value: chosen, set: setChosen, items: options })}
+      <p className="fb-q">2. What matters most to you on this trip?</p>
+      {group({
+        name: "What matters most", value: priority, set: setPriority,
+        items: CHOICES.priority.map((id) => ({ id, label: LABELS[id] })),
+      })}
+      <p className="fb-q">3. Do you know this area at night? <span className="muted">(optional)</span></p>
+      {group({
+        name: "Area at night", value: feel, set: setFeel,
+        items: CHOICES.feel.map((id) => ({ id, label: LABELS[id] })),
+      })}
+      {error && <p className="error-inline">{error}</p>}
+      <button type="button" className="btn primary" disabled={!chosen || !priority || state === "sending"} onClick={submit}>
+        {state === "sending" ? "Sending…" : "Send"}
+      </button>
+      <p className="note">
+        Saved: your answers, the routes&apos; scores and times, the hour, and start/end rounded to about 1 km. No
+        names, exact addresses or IPs.
+      </p>
+    </section>
+  );
+}

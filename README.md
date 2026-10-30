@@ -41,6 +41,33 @@ estimates the ride instead and says so in the app:
 - If any part of the ride falls between 10:30 pm and 6 am, the card tells you to check the last train with the
   operator.
 
+## Feedback: tuning the score with real answers
+
+The weights in the night score are a starting point, not something measured. To check them, each set of
+results ends with a short, optional, anonymous form:
+
+1. **Which of these would you actually take?** (each route shown, walk + metro, or none)
+2. **What matters most to you on this trip?** (fastest / people and open shops / well-lit streets / main
+   roads / a route I know)
+3. *(optional)* **Do you know this area at night?** (feels safe / some stretches don't / feels unsafe / don't know)
+
+Each answer becomes one row in a Google Sheet, alongside the scores, times and component values of the routes
+that were shown. Over time that answers concrete questions: do people pick the highest-scoring route or the
+fastest one, at which hours, and does a low "open places" or "light" value line up with areas people say feel
+unsafe?
+
+**What is stored:** the answers, the routes' scores, durations and component values, the departure hour, and
+the start and end rounded to 0.01° (about 1 km). **Not stored:** names, exact addresses, IP addresses or any
+free text. The form is asked once per trip per browser session and can be dismissed.
+
+**Setup** (the form stays hidden until this is done):
+
+1. Open the feedback Google Sheet, then Extensions → Apps Script. Paste
+   [`scripts/feedback/Code.gs`](scripts/feedback/Code.gs) and save.
+2. Project Settings → Script properties → add `SECRET` with a long random value.
+3. Deploy → New deployment → Web app. Execute as **Me**, access **Anyone**. Copy the web app URL.
+4. Set `FEEDBACK_WEBHOOK_URL` (that URL) and `FEEDBACK_SECRET` (the same secret) in the app's environment.
+
 Inspired by [this demo](https://x.com/achinamayya/status/2115794397489205740), rebuilt for Delhi NCR on open data only.
 
 ## Data
@@ -146,6 +173,8 @@ assumed hours and the Overture confidence threshold are all at the top of
 | `OSRM_CAR_URL` | FOSSGIS `routed-car` | OSRM `/route/v1/driving` base URL |
 | `OSRM_FOOT_URL` | FOSSGIS `routed-foot` | OSRM `/route/v1/foot` base URL |
 | `ROUTER_USER_AGENT` | `rasta/0.1 …` | Sent to the router |
+| `FEEDBACK_WEBHOOK_URL` | unset (form hidden) | Apps Script web app that appends feedback rows |
+| `FEEDBACK_SECRET` | unset | Shared secret checked by the Apps Script |
 
 FOSSGIS's servers are fine for trying this out, but they're a shared, donated resource. Before sharing the app
 widely, run your own OSRM (an NCR-sized graph fits comfortably on a small VM) and point the variables at it.
@@ -162,6 +191,7 @@ lib/hours.ts            opening_hours evaluation in IST
 lib/metro.ts            walk + metro planner over OSM metro lines (Dijkstra, estimated ride times)
 lib/trip.ts             request validation, 15-minute cache of router candidates
 app/api/routes          POST {from, to, mode, depart} → scored routes
+app/api/feedback        GET → {enabled}; POST anonymous answers → Google Sheet via Apps Script
 app/api/timeline        POST {from, to, mode, depart} → each route's score every 30 min, 6 pm–3 am IST
 components/             UI (MapLibre map, search, route cards, departure chart, share)
 ```

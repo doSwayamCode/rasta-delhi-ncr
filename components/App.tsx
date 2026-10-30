@@ -9,6 +9,7 @@ import type { MetroOption } from "@/lib/metro";
 import type { Component, ScoredRoute } from "@/lib/score";
 import { COMPONENT_LABEL, KIND_COLOR, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
 import PlaceSearch, { Picked, reverseGeocode } from "./PlaceSearch";
+import Feedback from "./Feedback";
 import Share, { metroShareText, shareText } from "./Share";
 import Timeline, { TimelineData } from "./Timeline";
 
@@ -417,6 +418,15 @@ export default function App() {
                   </li>
                 )}
               </ol>
+              <Feedback
+                tripKey={`${result.mode}|${from.point.join(",")}|${to.point.join(",")}`}
+                mode={result.mode}
+                depart={result.depart}
+                from={from.point}
+                to={to.point}
+                routes={routes}
+                metro={metro}
+              />
               <p className="disclaimer">
                 Rasta compares routes using public data; it cannot see what is happening on a street tonight. Use it
                 to weigh options, not as a guarantee. In an emergency call <a href="tel:112">112</a>.

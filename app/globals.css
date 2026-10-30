@@ -783,3 +783,53 @@ a {
   border-radius: 8px;
   font-size: 13px;
 }
+
+/* Feedback -------------------------------------------------------------- */
+
+.feedback {
+  margin-top: 14px;
+  padding: 12px;
+  background: var(--raise);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+.feedback.done {
+  color: var(--muted);
+}
+
+.fb-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.fb-head .link {
+  margin-left: auto;
+}
+
+.fb-q {
+  margin: 12px 0 6px;
+}
+
+.fb-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.feedback .btn.primary {
+  margin-top: 12px;
+}
+
+.feedback .btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.error-inline {
+  color: #ffb4ab;
+  font-size: 13px;
+  margin: 8px 0 0;
+}
