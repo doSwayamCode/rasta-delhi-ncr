@@ -1,13 +1,15 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Meta } from "@/lib/data";
 import type { LngLat } from "@/lib/geo";
 import type { Mode } from "@/lib/routing";
 import type { Component, ScoredRoute } from "@/lib/score";
 import { COMPONENT_LABEL, KIND_COLOR, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
 import PlaceSearch, { Picked, reverseGeocode } from "./PlaceSearch";
+import Share from "./Share";
+import Timeline, { TimelineData } from "./Timeline";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="map" /> });
 
@@ -39,6 +41,39 @@ function istInputValue(d: Date): string {
   return new Date(d.getTime() + IST_MS).toISOString().slice(0, 16);
 }
 
+/**
+ * The trip lives in the URL so it can be shared and reopened:
+ * ?a=lon,lat&an=label&b=lon,lat&bn=label&m=walk|drive&t=ISO&r=routeIndex  (no t = leave now)
+ */
+function readUrl() {
+  const q = new URLSearchParams(window.location.search);
+  const pt = (v: string | null, label: string | null): Picked | null => {
+    const m = v?.split(",").map(Number);
+    if (!m || m.length !== 2 || m.some((x) => !Number.isFinite(x))) return null;
+    return { point: [m[0], m[1]], label: label || `${m[1].toFixed(5)}, ${m[0].toFixed(5)}` };
+  };
+  const t = q.get("t");
+  const r = q.get("r");
+  return {
+    from: pt(q.get("a"), q.get("an")),
+    to: pt(q.get("b"), q.get("bn")),
+    mode: q.get("m") === "drive" ? ("drive" as const) : q.get("m") === "walk" ? ("walk" as const) : null,
+    depart: t && !Number.isNaN(Date.parse(t)) ? new Date(t) : null,
+    route: r !== null && /^\d$/.test(r) ? Number(r) : null,
+  };
+}
+
+function tripUrl(from: Picked | null, to: Picked | null, mode: Mode, depart: string | null, route: number | null): string {
+  const q = new URLSearchParams();
+  const ll = (p: Picked) => `${p.point[0].toFixed(5)},${p.point[1].toFixed(5)}`;
+  if (from) q.set("a", ll(from)), q.set("an", from.label);
+  if (to) q.set("b", ll(to)), q.set("bn", to.label);
+  q.set("m", mode);
+  if (depart) q.set("t", new Date(depart).toISOString().replace(/:00\.000Z$/, "Z"));
+  if (route !== null) q.set("r", String(route));
+  return `${window.location.origin}${window.location.pathname}?${q}`;
+}
+
 function fmtIst(iso: string): string {
   return new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata", weekday: "short", hour: "numeric", minute: "2-digit",
@@ -57,6 +92,25 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [about, setAbout] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineData | null>(null);
+  const wantRoute = useRef<number | null>(null);
+  const restored = useRef(false);
+  const skipPickerSync = useRef(false);
+
+  // Restore a shared trip from the URL once, on first load.
+  useEffect(() => {
+    const u = readUrl();
+    if (u.from) setFrom(u.from);
+    if (u.to) setTo(u.to);
+    if (u.mode) setMode(u.mode);
+    if (u.depart) {
+      setPreset("custom");
+      setCustom(istInputValue(u.depart));
+      skipPickerSync.current = true;
+    }
+    wantRoute.current = u.route;
+    restored.current = true;
+  }, []);
 
   useEffect(() => {
     fetch("/api/meta").then((r) => r.json()).then(setMeta).catch(() => setMeta(null));
@@ -70,8 +124,19 @@ export default function App() {
 
   // Keep the custom picker showing the time actually being scored.
   useEffect(() => {
+    // On the very first pass this would overwrite a time just restored from a shared link.
+    if (skipPickerSync.current) {
+      skipPickerSync.current = false;
+      return;
+    }
     if (preset !== "custom") setCustom(istInputValue(depart ? new Date(depart) : new Date()));
   }, [preset, depart]);
+
+  // Mirror the trip into the address bar (without adding history entries).
+  useEffect(() => {
+    if (!restored.current) return;
+    window.history.replaceState(null, "", tripUrl(from, to, mode, depart, result ? selected : null));
+  }, [from, to, mode, depart, selected, result]);
 
   useEffect(() => {
     if (!from || !to) {
@@ -95,7 +160,9 @@ export default function App() {
       .then((body) => {
         setResult(body);
         const best = [...body.routes].sort((a, b) => (b.score ?? -1) - (a.score ?? -1))[0];
-        setSelected(best?.id ?? 0);
+        const want = wantRoute.current;
+        wantRoute.current = null;
+        setSelected(want !== null && body.routes.some((r) => r.id === want) ? want : (best?.id ?? 0));
         setLoading(false);
       })
       .catch((e: Error) => {
@@ -106,6 +173,29 @@ export default function App() {
       });
     return () => ac.abort();
   }, [from, to, mode, depart]);
+
+  // The departure-time chart: same routes, scored across the evening. Fetched after the routes
+  // so the cards never wait on it.
+  useEffect(() => {
+    setTimeline(null);
+    if (!result || !from || !to) return;
+    const ac = new AbortController();
+    fetch("/api/timeline", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ from: from.point, to: to.point, mode: result.mode, depart: result.depart }),
+      signal: ac.signal,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => body && setTimeline(body))
+      .catch(() => undefined);
+    return () => ac.abort();
+  }, [result, from, to]);
+
+  const pickTime = useCallback((iso: string) => {
+    setPreset("custom");
+    setCustom(istInputValue(new Date(iso)));
+  }, []);
 
   const pickOnMap = useCallback(
     async (p: LngLat) => {
@@ -264,7 +354,23 @@ export default function App() {
                           </div>
                         </div>
                       </button>
-                      {isSel && <Breakdown r={r} mode={result.mode} />}
+                      {isSel && (
+                        <Breakdown r={r} mode={result.mode}>
+                          <Share
+                            route={r}
+                            mode={result.mode}
+                            fromLabel={from.label}
+                            toLabel={to.label}
+                            depart={result.depart}
+                            url={tripUrl(from, to, result.mode, result.depart, r.id)}
+                          />
+                          {timeline ? (
+                            <Timeline data={timeline} routeId={r.id} depart={result.depart} onPick={pickTime} />
+                          ) : (
+                            <p className="note">Checking how this route changes through the evening…</p>
+                          )}
+                        </Breakdown>
+                      )}
                     </li>
                   );
                 })}
@@ -317,11 +423,12 @@ export default function App() {
   );
 }
 
-function Breakdown({ r, mode }: { r: ScoredRoute; mode: Mode }) {
+function Breakdown({ r, mode, children }: { r: ScoredRoute; mode: Mode; children?: React.ReactNode }) {
   const order: Component[] = ["activity", "gaps", "light", "roads", "help", "cameras", "transit"];
   const s = r.stats;
   return (
     <div className="breakdown">
+      {children}
       <ul className="facts">
         {summary(r).map((line) => <li key={line}>{line}</li>)}
       </ul>

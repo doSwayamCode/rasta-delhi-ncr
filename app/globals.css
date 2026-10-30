@@ -646,3 +646,95 @@ a {
 .maplibregl-ctrl-attrib a {
   color: #c3c9d1;
 }
+
+/* Share ----------------------------------------------------------------- */
+
+.share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  background: var(--raise);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: #1f6f43;
+  border-color: #1f6f43;
+}
+
+/* Departure timeline ------------------------------------------------------- */
+
+.timeline {
+  margin: 0 0 12px;
+  padding: 10px 10px 8px;
+  background: var(--raise);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.timeline figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.timeline-plot {
+  position: relative;
+}
+
+.timeline svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.timeline .bar {
+  fill: rgba(245, 185, 66, 0.45);
+}
+
+.timeline .bar.hov {
+  fill: rgba(245, 185, 66, 0.75);
+}
+
+.timeline .bar.cur {
+  fill: var(--accent);
+}
+
+.timeline .grid {
+  stroke: #262c35;
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.timeline .baseline {
+  stroke: #3a414c;
+  stroke-width: 1;
+}
+
+.timeline .axis {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+
+.timeline-line {
+  margin: 6px 0 0;
+  font-size: 13px;
+  min-height: 2.9em;
+}

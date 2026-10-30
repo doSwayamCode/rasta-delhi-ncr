@@ -17,6 +17,15 @@ genuinely different routes and scores each one for the hour you'll actually be o
 It doesn't pick a route for you. It shows the trade-off ("+4 min, but 30 open places instead of 6 and no 2 km
 dead stretch") and lets you decide.
 
+Two more things on each route:
+
+- **Best time to leave.** A bar chart of the route's night score for every 30-minute departure from 6 pm to
+  3 am, with the best window called out ("Best to leave 6 pm–8:30 pm (score 54). Leaving at 9 pm scores 50").
+  Tap a bar to rescore at that time.
+- **Share my route.** The whole trip lives in the URL, so a link reopens the same places, mode, departure time
+  and selected route. One tap sends a WhatsApp message with where you're going, when you left and when you
+  should arrive, plus that link.
+
 Inspired by [this demo](https://x.com/achinamayya/status/2115794397489205740), rebuilt for Delhi NCR on open data only.
 
 ## Data
@@ -135,8 +144,10 @@ lib/data.ts             loads data, spatial grid index, radiance lookup
 lib/routing.ts          OSRM candidates, via-point detours, de-duplication
 lib/score.ts            the night score
 lib/hours.ts            opening_hours evaluation in IST
+lib/trip.ts             request validation, 15-minute cache of router candidates
 app/api/routes          POST {from, to, mode, depart} → scored routes
-components/             UI (MapLibre map, search, route cards)
+app/api/timeline        POST {from, to, mode, depart} → each route's score every 30 min, 6 pm–3 am IST
+components/             UI (MapLibre map, search, route cards, departure chart, share)
 ```
 
 ## Licences and attribution
