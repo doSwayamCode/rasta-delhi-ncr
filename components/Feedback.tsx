@@ -16,6 +16,7 @@ interface Props {
   to: LngLat;
   routes: ScoredRoute[];
   metro: MetroOption | null;
+  teen: boolean;
 }
 
 let enabled: Promise<boolean> | null = null;
@@ -27,7 +28,7 @@ const isEnabled = () =>
  * app/api/feedback/route.ts) and are used to check the score's weights against what people
  * actually choose and how streets feel to people who know them.
  */
-export default function Feedback({ tripKey, mode, depart, from, to, routes, metro }: Props) {
+export default function Feedback({ tripKey, mode, depart, from, to, routes, metro, teen }: Props) {
   const [on, setOn] = useState(false);
   const [chosen, setChosen] = useState<string | null>(null);
   const [priority, setPriority] = useState<string | null>(null);
@@ -46,7 +47,7 @@ export default function Feedback({ tripKey, mode, depart, from, to, routes, metr
     setError(null);
     let seen = false;
     try {
-      seen = sessionStorage.getItem(`rasta-fb:${tripKey}`) !== null;
+      seen = sessionStorage.getItem(`ghartak-fb:${tripKey}`) !== null;
     } catch {
       // storage unavailable: just ask
     }
@@ -58,7 +59,7 @@ export default function Feedback({ tripKey, mode, depart, from, to, routes, metr
 
   const remember = () => {
     try {
-      sessionStorage.setItem(`rasta-fb:${tripKey}`, "1");
+      sessionStorage.setItem(`ghartak-fb:${tripKey}`, "1");
     } catch {
       // ignore
     }
@@ -81,7 +82,7 @@ export default function Feedback({ tripKey, mode, depart, from, to, routes, metr
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          mode, depart, from, to, chosen, priority, feel,
+          mode, depart, from, to, chosen, priority, feel, teen,
           routes: routes.map(summary),
           metro: metro ? { score: metro.score, duration: metro.duration } : null,
         }),

@@ -1,4 +1,4 @@
-"""Build Rasta's static datasets for the NCR coverage box.
+"""Build Ghar Tak's static datasets for the NCR coverage box.
 
 Inputs (all open data, fetched by this script):
   * OpenStreetMap state extracts from download.openstreetmap.fr (Haryana, Delhi, Uttar Pradesh)
@@ -11,6 +11,7 @@ Outputs in data/ (the two big files are gzipped):
   roads.bin.gz  every OSM road/footway in the box (class, lit tag, geometry) for snapping routes
   light.json    median night radiance grid (nW/cm^2/sr)
   metro.json    metro / RRTS lines with their ordered stops, from OSM route relations
+  bus.json.gz   major bus routes (>= 20 mapped stops) and their way geometry, from OSM
   meta.json     source versions, dates and counts, shown in the app
 
 Usage:
@@ -49,7 +50,7 @@ SOUTH, WEST, NORTH, EAST = 28.14, 76.80, 29.02, 77.70
 OSM_EXTRACTS = ["national_capital_territory_of_delhi", "haryana", "uttar_pradesh", "rajasthan"]
 OSM_URL = "https://download.openstreetmap.fr/extracts/asia/india/{}-latest.osm.pbf"
 OVERTURE_RELEASE = "2026-10-21.0"
-UA = "rasta-data-build/1.0 (+https://github.com)"
+UA = "ghartak-data-build/1.0 (+https://github.com)"
 
 
 BOX_TAG = f"{SOUTH}_{WEST}_{NORTH}_{EAST}"
@@ -149,7 +150,7 @@ class OsmHandler(osmium.SimpleHandler):
         self.pois: dict[str, tuple] = {}
         self.roads: dict[int, tuple] = {}
 
-    def _poi(self, key, lat, lon, tags):
+    def _poi(self, key, lat, lon, tags):  # noqa: C901
         kind = osm_kind(tags)
         if not kind or not inside(lat, lon):
             return
@@ -159,7 +160,9 @@ class OsmHandler(osmium.SimpleHandler):
             name = tags.get("surveillance:type", "camera")
             if tags.get("surveillance") == "indoor":
                 return
-        self.pois[key] = (round(lat, 6), round(lon, 6), kind, name[:80], oh[:200], "osm")
+        phone = clean_phone(tags.get("phone") or tags.get("contact:phone") or tags.get("contact:mobile")
+                            or tags.get("emergency:phone") or "") if kind in HELP_KINDS else ""
+        self.pois[key] = (round(lat, 6), round(lon, 6), kind, name[:80], oh[:200], "osm", phone)
 
     def node(self, n):
         if n.tags:
@@ -228,10 +231,20 @@ OVERTURE_KINDS = {
 OVERTURE_MIN_CONFIDENCE = 0.65
 
 
+HELP_KINDS = {"hospital", "police"}
+
+
+def clean_phone(raw: str) -> str:
+    """First phone number in a tag, digits and a leading + only; '' if it doesn't look like one."""
+    first = re.split(r"[;,/]", raw)[0] if raw else ""
+    digits = re.sub(r"[^\d+]", "", first)
+    return digits if 8 <= len(digits.lstrip("+")) <= 15 else ""
+
+
 def build_overture():
     import duckdb
 
-    cache = CACHE / f"overture-places-{OVERTURE_RELEASE}-{BOX_TAG}.parquet"
+    cache = CACHE / f"overture-places-{OVERTURE_RELEASE}-{BOX_TAG}-v2.parquet"
     con = duckdb.connect()
     if not cache.exists():
         print("  querying Overture places (anonymous S3)")
@@ -241,21 +254,22 @@ def build_overture():
         con.sql("CREATE SECRET ov (TYPE s3, PROVIDER config, KEY_ID '', SECRET '', REGION 'us-west-2')")
         con.sql(f"""COPY (
           SELECT id, names.primary AS name, taxonomy.primary AS cat, basic_category, confidence, operating_status,
-                 (bbox.xmin + bbox.xmax) / 2 AS lon, (bbox.ymin + bbox.ymax) / 2 AS lat
+                 phones[1] AS phone, (bbox.xmin + bbox.xmax) / 2 AS lon, (bbox.ymin + bbox.ymax) / 2 AS lat
           FROM read_parquet('s3://overturemaps-us-west-2/release/{OVERTURE_RELEASE}/theme=places/type=place/*',
                             hive_partitioning = 1)
           WHERE bbox.xmin BETWEEN {WEST} AND {EAST} AND bbox.ymin BETWEEN {SOUTH} AND {NORTH}
         ) TO '{cache}' (FORMAT parquet)""")
-    rows = con.sql(f"""SELECT name, cat, basic_category, lat, lon FROM '{cache}'
+    rows = con.sql(f"""SELECT name, cat, basic_category, lat, lon, phone FROM '{cache}'
                        WHERE confidence >= {OVERTURE_MIN_CONFIDENCE}
                          AND coalesce(operating_status, 'open') = 'open'""").fetchall()
     out = []
-    for name, cat, basic, lat, lon in rows:
+    for name, cat, basic, lat, lon, phone in rows:
         kind = OVERTURE_KINDS.get(cat) or OVERTURE_KINDS.get(basic)
         if cat in ("metro_station", "bus_station"):
             kind = "metro" if cat == "metro_station" else "bus"
         if kind and inside(lat, lon):
-            out.append((round(lat, 6), round(lon, 6), kind, (name or "")[:80], "", "ovt"))
+            ph = clean_phone(phone or "") if kind in HELP_KINDS else ""
+            out.append((round(lat, 6), round(lon, 6), kind, (name or "")[:80], "", "ovt", ph))
     print(f"  Overture: {len(out)} places kept of {len(rows)} above confidence {OVERTURE_MIN_CONFIDENCE}")
     return out
 
@@ -436,6 +450,100 @@ def build_metro():
             "speedSource": [f"{n}: {round(l / 1000, 1)} km in {d:.0f} min" for n, l, d in timed]}
 
 
+# --------------------------------------------------------------------------------------------
+# Bus routes from OSM route=bus relations. "Major" = at least BUS_MIN_STOPS mapped stops, which
+# keeps DTC/cluster trunk and ring routes (Mudrika, 534A, 740...) and drops stubs.
+# --------------------------------------------------------------------------------------------
+BUS_MIN_STOPS = 20
+
+
+class BusRelations(osmium.SimpleHandler):
+    def __init__(self):
+        super().__init__()
+        self.rels: dict[int, dict] = {}
+
+    def relation(self, r):
+        t = r.tags
+        if t.get("type") != "route" or t.get("route") != "bus" or r.id in self.rels:
+            return
+        stops = sum(1 for m in r.members if m.role.startswith("stop") or m.role.startswith("platform"))
+        ways = [m.ref for m in r.members if m.type == "w" and not m.role.startswith("platform")]
+        if stops < BUS_MIN_STOPS or not ways:
+            return
+        self.rels[r.id] = {"ref": t.get("ref", ""), "name": t.get("name", ""), "from": t.get("from", ""),
+                           "to": t.get("to", ""), "operator": t.get("operator", "") or t.get("network", ""),
+                           "ways": ways, "stops": stops}
+
+
+class WayGeometry(osmium.SimpleHandler):
+    def __init__(self, wanted: set[int]):
+        super().__init__()
+        self.wanted = wanted
+        self.geom: dict[int, list] = {}
+
+    def way(self, w):
+        if w.id in self.wanted and w.id not in self.geom:
+            try:
+                self.geom[w.id] = [(n.location.lon, n.location.lat) for n in w.nodes if n.location.valid()]
+            except osmium.InvalidLocationError:
+                pass
+
+
+def simplify_line(pts, tol_deg=0.00012):
+    """Douglas-Peucker; ~13 m tolerance is plenty for drawing corridors."""
+    if len(pts) < 3:
+        return pts
+    keep = [False] * len(pts)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        a, b = stack.pop()
+        (x1, y1), (x2, y2) = pts[a], pts[b]
+        dx, dy = x2 - x1, y2 - y1
+        L2 = dx * dx + dy * dy or 1e-18
+        best, bi = 0.0, -1
+        for i in range(a + 1, b):
+            px, py = pts[i]
+            t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / L2))
+            d = math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+            if d > best:
+                best, bi = d, i
+        if best > tol_deg:
+            keep[bi] = True
+            stack += [(a, bi), (bi, b)]
+    return [p for p, k in zip(pts, keep) if k]
+
+
+def build_bus():
+    rh = BusRelations()
+    for name in OSM_EXTRACTS:
+        rh.apply_file(str(CACHE / f"{name}-latest.osm.pbf"))
+    wanted = {w for r in rh.rels.values() for w in r["ways"]}
+    wh = WayGeometry(wanted)
+    for name in OSM_EXTRACTS:
+        wh.apply_file(str(CACHE / f"{name}-latest.osm.pbf"), locations=True)
+    way_index: dict[int, int] = {}
+    ways_out, routes = [], []
+    for rid, r in sorted(rh.rels.items()):
+        geoms = [wh.geom.get(w) for w in r["ways"]]
+        inside_pts = sum(1 for g in geoms if g for x, y in g if inside(y, x))
+        total_pts = sum(len(g) for g in geoms if g)
+        if not total_pts or inside_pts / total_pts < 0.6:   # mostly outside NCR (e.g. Chandigarh)
+            continue
+        idx = []
+        for w, g in zip(r["ways"], geoms):
+            if not g or len(g) < 2:
+                continue
+            if w not in way_index:
+                way_index[w] = len(ways_out)
+                ways_out.append([[round(x, 5), round(y, 5)] for x, y in simplify_line(g)])
+            idx.append(way_index[w])
+        routes.append({"osm": rid, "ref": r["ref"], "name": r["name"], "from": r["from"], "to": r["to"],
+                       "operator": r["operator"], "stops": r["stops"], "ways": sorted(set(idx))})
+    print(f"  bus: {len(routes)} major routes (>= {BUS_MIN_STOPS} stops), {len(ways_out)} ways")
+    return {"routes": routes, "ways": ways_out, "minStops": BUS_MIN_STOPS}
+
+
 def write_roads(roads, path: Path):
     """Binary: u32 count, then per way: u8 class, u8 lit, u16 n, n x (i32 lat*1e5, i32 lon*1e5)."""
     with gzip.open(path, "wb", compresslevel=9) as f:
@@ -452,6 +560,10 @@ def main():
     if "--only-metro" in sys.argv:
         (OUT / "metro.json").write_text(json.dumps(build_metro(), separators=(",", ":"), ensure_ascii=False))
         return
+    if "--only-bus" in sys.argv:
+        with gzip.open(OUT / "bus.json.gz", "wt", encoding="utf-8", compresslevel=9) as f:
+            f.write(json.dumps(build_bus(), separators=(",", ":"), ensure_ascii=False))
+        return
     print("OpenStreetMap")
     osm_pois, roads, osm_dates = build_osm()
     print("Overture")
@@ -465,6 +577,10 @@ def main():
     print("Metro")
     metro = build_metro()
     (OUT / "metro.json").write_text(json.dumps(metro, separators=(",", ":"), ensure_ascii=False))
+
+    print("Bus routes")
+    with gzip.open(OUT / "bus.json.gz", "wt", encoding="utf-8", compresslevel=9) as f:
+        f.write(json.dumps(build_bus(), separators=(",", ":"), ensure_ascii=False))
 
     names, name_idx = [], {}
 
@@ -484,6 +600,8 @@ def main():
         "name": [nid(p[3]) for p in pois],
         "hours": [p[4] for p in pois],
         "src": [0 if p[5] == "osm" else 1 for p in pois],
+        # Phone numbers for hospitals and police stations, where OSM or Overture has one; "" otherwise.
+        "phone": [p[6] for p in pois],
     }
     with gzip.open(OUT / "pois.json.gz", "wt", encoding="utf-8", compresslevel=9) as f:
         f.write(json.dumps(out, separators=(",", ":"), ensure_ascii=False))

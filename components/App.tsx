@@ -7,10 +7,15 @@ import type { LngLat } from "@/lib/geo";
 import type { Mode } from "@/lib/routing";
 import type { MetroOption } from "@/lib/metro";
 import type { Component, ScoredRoute } from "@/lib/score";
-import { COMPONENT_LABEL, KIND_COLOR, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
+import { useTheme } from "@/lib/theme";
+import { COMPONENT_LABEL, KIND_COLORS, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
 import PlaceSearch, { Picked, reverseGeocode } from "./PlaceSearch";
+import AlongRoute from "./AlongRoute";
+import { HelplineList, RouteHelp, SosButton } from "./Emergency";
 import Feedback from "./Feedback";
+import TrustedContacts from "./TrustedContacts";
 import Share, { metroShareText, shareText } from "./Share";
+import ThemeToggle from "./ThemeToggle";
 import Timeline, { TimelineData } from "./Timeline";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="map" /> });
@@ -62,11 +67,14 @@ function readUrl() {
     to: pt(q.get("b"), q.get("bn")),
     mode: q.get("m") === "drive" ? ("drive" as const) : q.get("m") === "walk" ? ("walk" as const) : null,
     depart: t && !Number.isNaN(Date.parse(t)) ? new Date(t) : null,
-    route: r !== null && /^\d$/.test(r) ? Number(r) : null,
+    route: r !== null && /^\d{1,3}$/.test(r) ? Number(r) : null, // 0-2 routes, 100 = walk + metro
+    teen: q.get("teen") === "1",
   };
 }
 
-function tripUrl(from: Picked | null, to: Picked | null, mode: Mode, depart: string | null, route: number | null): string {
+function tripUrl(
+  from: Picked | null, to: Picked | null, mode: Mode, depart: string | null, route: number | null, teen = false,
+): string {
   const q = new URLSearchParams();
   const ll = (p: Picked) => `${p.point[0].toFixed(5)},${p.point[1].toFixed(5)}`;
   if (from) q.set("a", ll(from)), q.set("an", from.label);
@@ -74,8 +82,34 @@ function tripUrl(from: Picked | null, to: Picked | null, mode: Mode, depart: str
   q.set("m", mode);
   if (depart) q.set("t", new Date(depart).toISOString().replace(/:00\.000Z$/, "Z"));
   if (route !== null) q.set("r", String(route));
+  if (teen) q.set("teen", "1");
   return `${window.location.origin}${window.location.pathname}?${q}`;
 }
+
+/** Per-device UI preferences (teen mode, hidden layers, details). Never sent anywhere. */
+function usePref<T>(key: string, initial: T): [T, (v: T) => void] {
+  const [v, setV] = useState<T>(initial);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw !== null) setV(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+  }, [key]);
+  const set = useCallback((next: T) => {
+    setV(next);
+    try {
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }, [key]);
+  return [v, set];
+}
+
+/** Kinds the person can hide on the map. CCTV is deliberately not in this list: it always shows. */
+const HIDEABLE = ["food", "grocery", "shop", "pharmacy", "fuel", "hospital", "police", "hotel", "metro"];
 
 function fmtIst(iso: string): string {
   return new Intl.DateTimeFormat("en-IN", {
@@ -84,6 +118,7 @@ function fmtIst(iso: string): string {
 }
 
 export default function App() {
+  const { theme } = useTheme();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [from, setFrom] = useState<Picked | null>(null);
   const [to, setTo] = useState<Picked | null>(null);
@@ -95,6 +130,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [about, setAbout] = useState(false);
+  const [teen, setTeen] = usePref<boolean>("ghartak-teen", false);
+  const [hidden, setHidden] = usePref<string[]>("ghartak-hidden-kinds", []);
+  const [showBuses, setShowBuses] = usePref<boolean>("ghartak-bus-layer", false);
+  const [layersOpen, setLayersOpen] = useState(false);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const wantRoute = useRef<number | null>(null);
   const restored = useRef(false);
@@ -112,6 +151,7 @@ export default function App() {
       skipPickerSync.current = true;
     }
     wantRoute.current = u.route;
+    if (u.teen) setTeen(true);
     restored.current = true;
   }, []);
 
@@ -138,8 +178,8 @@ export default function App() {
   // Mirror the trip into the address bar (without adding history entries).
   useEffect(() => {
     if (!restored.current) return;
-    window.history.replaceState(null, "", tripUrl(from, to, mode, depart, result ? selected : null));
-  }, [from, to, mode, depart, selected, result]);
+    window.history.replaceState(null, "", tripUrl(from, to, mode, depart, result ? selected : null, teen));
+  }, [from, to, mode, depart, selected, result, teen]);
 
   useEffect(() => {
     if (!from || !to) {
@@ -152,7 +192,7 @@ export default function App() {
     fetch("/api/routes", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ from: from.point, to: to.point, mode, depart: depart ?? new Date().toISOString() }),
+      body: JSON.stringify({ from: from.point, to: to.point, mode, teen, depart: depart ?? new Date().toISOString() }),
       signal: ac.signal,
     })
       .then(async (r) => {
@@ -176,7 +216,7 @@ export default function App() {
         setLoading(false);
       });
     return () => ac.abort();
-  }, [from, to, mode, depart]);
+  }, [from, to, mode, depart, teen]);
 
   // The departure-time chart: same routes, scored across the evening. Fetched after the routes
   // so the cards never wait on it.
@@ -187,14 +227,14 @@ export default function App() {
     fetch("/api/timeline", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ from: from.point, to: to.point, mode: result.mode, depart: result.depart }),
+      body: JSON.stringify({ from: from.point, to: to.point, mode: result.mode, teen, depart: result.depart }),
       signal: ac.signal,
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => body && setTimeline(body))
       .catch(() => undefined);
     return () => ac.abort();
-  }, [result, from, to]);
+  }, [result, from, to, teen]);
 
   const pickTime = useCallback((iso: string) => {
     setPreset("custom");
@@ -242,7 +282,10 @@ export default function App() {
     <div className="app">
       <aside className="panel">
         <header className="brand">
-          <h1>Rasta</h1>
+          <div className="brand-top">
+            <h1>Ghar Tak</h1>
+            <ThemeToggle />
+          </div>
           <p>
             Compare routes across Delhi NCR by how open, lit and busy they are at the hour you travel. Not
             just the fastest way: the one with people around.
@@ -285,6 +328,15 @@ export default function App() {
               ))}
             </div>
           </div>
+
+          <label className="teen-switch">
+            <input type="checkbox" checked={teen} onChange={(e) => setTeen(e.target.checked)} />
+            <span className="switch" aria-hidden />
+            <span>
+              <b>Teen mode</b>
+              <small>Stricter ranking: open, busy main roads first, short empty stretches only</small>
+            </span>
+          </label>
 
           <div className="row time">
             <span className="row-label">Leaving</span>
@@ -343,7 +395,7 @@ export default function App() {
                       >
                         <div className="score" style={{ color: scoreColor(r.score), borderColor: scoreColor(r.score) }}>
                           <span>{r.score ?? "–"}</span>
-                          <small>night score</small>
+                          <small>{teen ? "teen score" : "night score"}</small>
                         </div>
                         <div className="card-main">
                           <div className="card-top">
@@ -360,11 +412,11 @@ export default function App() {
                         </div>
                       </button>
                       {isSel && (
-                        <Breakdown r={r} mode={result.mode}>
+                        <Breakdown r={r} mode={result.mode} teen={teen} depart={result.depart}>
                           <Share
                             text={shareText({
                               route: r, mode: result.mode, fromLabel: from.label, toLabel: to.label,
-                              depart: result.depart, url: tripUrl(from, to, result.mode, result.depart, r.id),
+                              depart: result.depart, url: tripUrl(from, to, result.mode, result.depart, r.id, teen),
                             })}
                           />
                           {timeline ? (
@@ -411,7 +463,7 @@ export default function App() {
                         m={metro}
                         share={metroShareText({
                           metro, fromLabel: from.label, toLabel: to.label, depart: result.depart,
-                          url: tripUrl(from, to, result.mode, result.depart, metro.id),
+                          url: tripUrl(from, to, result.mode, result.depart, metro.id, teen),
                         })}
                       />
                     )}
@@ -426,9 +478,10 @@ export default function App() {
                 to={to.point}
                 routes={routes}
                 metro={metro}
+                teen={teen}
               />
               <p className="disclaimer">
-                Rasta compares routes using public data; it cannot see what is happening on a street tonight. Use it
+                Ghar Tak compares routes using public data; it cannot see what is happening on a street tonight. Use it
                 to weigh options, not as a guarantee. In an emergency call <a href="tel:112">112</a>.
               </p>
             </>
@@ -441,8 +494,7 @@ export default function App() {
           </button>
           {about && <About meta={meta} />}
           <div className="helplines">
-            Emergency <a href="tel:112">112</a> · Women helpline <a href="tel:181">181</a> · UP Women Power Line{" "}
-            <a href="tel:1090">1090</a>
+            <HelplineList />
           </div>
         </footer>
       </aside>
@@ -454,24 +506,47 @@ export default function App() {
           to={to?.point ?? null}
           routes={routes}
           metro={metro}
+          theme={theme}
+          hidden={hidden}
+          showBuses={showBuses}
           selected={selected}
           onPick={pickOnMap}
           onMove={moveMarker}
           onSelect={setSelected}
         />
-        {sel && (
-          <div className="legend" aria-label="Map legend">
-            {LEGEND.map((l) => (
-              <span key={l.kind}>
-                <i style={{ background: KIND_COLOR[l.kind] }} />
-                {l.label}
-              </span>
-            ))}
-            <span><i className="hollow" />Closed then</span>
-            <span><i className="gap" />Nothing open</span>
+        <div className={layersOpen ? "legend open" : "legend"} aria-label="Map layers">
+          <button type="button" className="legend-head" onClick={() => setLayersOpen(!layersOpen)} aria-expanded={layersOpen}>
+            Map layers {layersOpen ? "▾" : "▸"}
+          </button>
+          <div className="legend-body">
+            {LEGEND.map((l) => {
+              const lockedOn = l.kind === "camera";
+              const on = lockedOn || !hidden.includes(l.kind);
+              return (
+                <button
+                  key={l.kind} type="button" className={on ? "layer on" : "layer"} aria-pressed={on} disabled={lockedOn}
+                  title={lockedOn ? "CCTV points are always shown" : on ? `Hide ${l.label}` : `Show ${l.label}`}
+                  onClick={() => setHidden(on ? [...hidden, l.kind] : hidden.filter((k) => k !== l.kind))}
+                >
+                  <i style={{ background: KIND_COLORS[theme][l.kind] }} />
+                  {l.label}
+                  {lockedOn && <small> always on</small>}
+                </button>
+              );
+            })}
+            <button type="button" className={showBuses ? "layer on" : "layer"} aria-pressed={showBuses} onClick={() => setShowBuses(!showBuses)}>
+              <i className="bus" />
+              Bus routes
+            </button>
+            <span className="layer-note"><i className="hollow" />Closed then</span>
+            <span className="layer-note"><i className="gap" />Nothing open</span>
+            {HIDEABLE.some((k) => hidden.includes(k)) && (
+              <button type="button" className="link" onClick={() => setHidden([])}>Show all</button>
+            )}
           </div>
-        )}
+        </div>
       </main>
+      <SosButton />
     </div>
   );
 }
@@ -492,7 +567,7 @@ function MetroBreakdown({ m, share }: { m: MetroOption; share: string }) {
       <Share text={share} />
       {late && (
         <div className="warn">
-          This ride runs late at night. Rasta has no train times, so check the last train from{" "}
+          This ride runs late at night. Ghar Tak has no train times, so check the last train from{" "}
           <b>{m.board.station}</b>
           {m.ride.segments.length > 1 && <> and the connections at {m.ride.segments.slice(1).map((s) => s.from).join(", ")}</>}{" "}
           with {operators.join(" / ") || "the operator"} before you rely on this.
@@ -527,15 +602,48 @@ function MetroBreakdown({ m, share }: { m: MetroOption; share: string }) {
   );
 }
 
-function Breakdown({ r, mode, children }: { r: ScoredRoute; mode: Mode; children?: React.ReactNode }) {
+function Breakdown({ r, mode, teen, depart, children }: {
+  r: ScoredRoute; mode: Mode; teen: boolean; depart: string; children?: React.ReactNode;
+}) {
   const order: Component[] = ["activity", "gaps", "light", "roads", "help", "cameras", "transit"];
   const s = r.stats;
+  const [showFacts, setShowFacts] = usePref<boolean>("ghartak-show-details", true);
+  const istHour = (new Date(depart).getTime() / 3_600_000 + 5.5) % 24;
+  const late = istHour >= 21 || istHour < 5;
+  const quietLimit = mode === "walk" ? 300 : 2500;
   return (
     <div className="breakdown">
+      {teen && (
+        <div className="teen-box">
+          <b>Teen mode</b>
+          <ul>
+            {s.longestGap > quietLimit && (
+              <li>
+                This route has a {fmtDistance(s.longestGap)} stretch with nothing open. Prefer a route with a higher teen
+                score, or a cab.
+              </li>
+            )}
+            {late && <li>It&apos;s late. Ask a parent or guardian to pick you up, or send them your trip before you leave.</li>}
+            <li>Send your route and location to your guardians:</li>
+          </ul>
+          <div className="share"><TrustedContacts text={`[Teen mode] ${summary(r)[0]}. Route: ${typeof window !== "undefined" ? window.location.href : ""}`} /></div>
+          <HelplineList compact />
+        </div>
+      )}
       {children}
-      <ul className="facts">
-        {summary(r).map((line) => <li key={line}>{line}</li>)}
-      </ul>
+      <AlongRoute r={r} />
+      <RouteHelp points={r.emergency} total={r.distance} />
+      <div className="facts-head">
+        <span>Route details</span>
+        <button type="button" className="link" onClick={() => setShowFacts(!showFacts)} aria-expanded={showFacts}>
+          {showFacts ? "Hide" : "Show"}
+        </button>
+      </div>
+      {showFacts && (
+        <ul className="facts">
+          {summary(r).map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      )}
       <table className="bars">
         <tbody>
           {order
@@ -574,7 +682,7 @@ function About({ meta }: { meta: Meta | null }) {
     <div className="about">
       <h2>What the night score measures</h2>
       <p>
-        Each route is sampled every 15 m (walking) or 25 m (driving). At each point Rasta checks, for the time you
+        Each route is sampled every 15 m (walking) or 25 m (driving). At each point Ghar Tak checks, for the time you
         would actually reach it:
       </p>
       <ul>

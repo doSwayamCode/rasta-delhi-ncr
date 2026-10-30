@@ -1,18 +1,18 @@
 import type { Component, ScoredRoute } from "@/lib/score";
+import type { Theme } from "@/lib/theme";
 
-export const KIND_COLOR: Record<string, string> = {
-  hospital: "#ff6b6b",
-  police: "#5aa9ff",
-  fuel: "#f5b942",
-  pharmacy: "#4fd1a5",
-  food: "#ff9f43",
-  grocery: "#c3e86b",
-  shop: "#b79cff",
-  mall: "#e58fe0",
-  hotel: "#7fd3e6",
-  atm: "#9aa3ad",
-  metro: "#ffffff",
-  camera: "#ffd84d",
+/** Place colours per theme: the light set is darker so pins stay visible on a light basemap. */
+export const KIND_COLORS: Record<Theme, Record<string, string>> = {
+  dark: {
+    hospital: "#ff6b6b", police: "#5aa9ff", fuel: "#f5b942", pharmacy: "#4fd1a5", food: "#ff9f43",
+    grocery: "#c3e86b", shop: "#b79cff", mall: "#e58fe0", hotel: "#7fd3e6", atm: "#9aa3ad",
+    metro: "#ffffff", camera: "#ffd84d",
+  },
+  light: {
+    hospital: "#d92d20", police: "#1d5fd1", fuel: "#c77700", pharmacy: "#0b8a66", food: "#d9480f",
+    grocery: "#4d7c0f", shop: "#7c3aed", mall: "#b5179e", hotel: "#0e7490", atm: "#5b6472",
+    metro: "#121821", camera: "#a16207",
+  },
 };
 
 export const LEGEND: { kind: string; label: string }[] = [
@@ -38,11 +38,12 @@ export const COMPONENT_LABEL: Record<Component, { label: string; help: string }>
   transit: { label: "Transit points", help: "Metro, rail and bus stops beside a walking route: places with people and a way out." },
 };
 
+/** CSS colour for a score, from the theme's --good / --mid / --bad tokens. */
 export function scoreColor(score: number | null): string {
-  if (score === null) return "#9aa3ad";
-  if (score >= 65) return "#5cc28a";
-  if (score >= 45) return "#f5b942";
-  return "#ff6b5a";
+  if (score === null) return "var(--muted)";
+  if (score >= 65) return "var(--good)";
+  if (score >= 45) return "var(--mid)";
+  return "var(--bad)";
 }
 
 export function fmtDistance(m: number): string {
@@ -73,6 +74,6 @@ export function summary(r: ScoredRoute): string[] {
         `path (often a river, rail line or expressway without a crossing)`,
     );
   }
-  if (s.coverage < 1) out.push(`${Math.round((1 - s.coverage) * 100)}% of this route is outside Rasta's data area and is not scored`);
+  if (s.coverage < 1) out.push(`${Math.round((1 - s.coverage) * 100)}% of this route is outside Ghar Tak's data area and is not scored`);
   return out;
 }

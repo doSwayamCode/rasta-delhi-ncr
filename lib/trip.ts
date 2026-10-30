@@ -7,6 +7,8 @@ export interface Trip {
   to: LngLat;
   mode: Mode;
   depart: Date;
+  /** Teen mode: stricter scoring weights (lib/score.ts). */
+  teen: boolean;
 }
 
 function point(v: unknown): LngLat | null {
@@ -18,7 +20,7 @@ function point(v: unknown): LngLat | null {
 }
 
 const COVERAGE_ERROR =
-  "Rasta covers Delhi and the NCR cities around it (Gurugram, Manesar, Faridabad, Noida, Greater Noida, " +
+  "Ghar Tak covers Delhi and the NCR cities around it (Gurugram, Manesar, Faridabad, Noida, Greater Noida, " +
   "Ghaziabad, Sonipat, Bahadurgarh, Bhiwadi). Both points need to be inside that area.";
 
 /** Validates a request body into a Trip, or returns an error Response. */
@@ -41,7 +43,7 @@ export async function parseTrip(req: Request): Promise<{ trip: Trip; ds: Dataset
   if ([from, to].some(([lon, lat]) => lon < W || lon > E || lat < S || lat > N)) {
     return Response.json({ error: COVERAGE_ERROR }, { status: 422 });
   }
-  return { trip: { from, to, mode, depart }, ds };
+  return { trip: { from, to, mode, depart, teen: body.teen === true }, ds };
 }
 
 /**

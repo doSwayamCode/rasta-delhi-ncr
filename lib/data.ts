@@ -18,6 +18,8 @@ export interface Pois {
   name: number[];
   hours: string[];
   src: number[];
+  /** Phone numbers for hospitals and police stations where OSM or Overture has one; "" otherwise. */
+  phone?: string[];
 }
 
 export interface Light {
@@ -229,8 +231,69 @@ export interface Metro {
   speedSource: string[];
 }
 
+export interface BusRoute {
+  osm: number;
+  ref: string;
+  name: string;
+  from: string;
+  to: string;
+  operator: string;
+  stops: number;
+  ways: number[];
+}
+
+/** Major OSM bus routes (>= 20 mapped stops) and a grid over their way segments. */
+export class Buses {
+  readonly routes: BusRoute[];
+  readonly ways: [number, number][][];
+  readonly routesOfWay: number[][];
+  private grid = new Map<number, number[]>(); // cell -> packed (way << 12 | segment)
+  private static CELL = 0.002;
+
+  constructor(raw: { routes: BusRoute[]; ways: [number, number][][] }) {
+    this.routes = raw.routes;
+    this.ways = raw.ways;
+    this.routesOfWay = raw.ways.map(() => []);
+    raw.routes.forEach((r, ri) => r.ways.forEach((w) => this.routesOfWay[w].push(ri)));
+    this.ways.forEach((pts, wi) => {
+      for (let si = 0; si + 1 < pts.length && si < 4096; si++) {
+        const [x1, y1] = pts[si], [x2, y2] = pts[si + 1];
+        const cx0 = Math.floor(Math.min(x1, x2) / Buses.CELL), cx1 = Math.floor(Math.max(x1, x2) / Buses.CELL);
+        const cy0 = Math.floor(Math.min(y1, y2) / Buses.CELL), cy1 = Math.floor(Math.max(y1, y2) / Buses.CELL);
+        for (let cx = cx0; cx <= cx1; cx++) {
+          for (let cy = cy0; cy <= cy1; cy++) {
+            const k = cx * 100_000 + cy;
+            const list = this.grid.get(k) ?? this.grid.set(k, []).get(k)!;
+            list.push(wi * 4096 + si);
+          }
+        }
+      }
+    });
+  }
+
+  /** Indices of ways with a segment within radiusM of the point. */
+  waysNear(lon: number, lat: number, radiusM: number): Set<number> {
+    const out = new Set<number>();
+    const cx = Math.floor(lon / Buses.CELL), cy = Math.floor(lat / Buses.CELL);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const packed of this.grid.get((cx + dx) * 100_000 + cy + dy) ?? []) {
+          const wi = Math.floor(packed / 4096), si = packed % 4096;
+          if (out.has(wi)) continue;
+          const [x1, y1] = this.ways[wi][si], [x2, y2] = this.ways[wi][si + 1];
+          const d = pointSegDist(0, 0, (x1 - lon) * M_PER_DEG_LON, (y1 - lat) * M_PER_DEG_LAT,
+            (x2 - lon) * M_PER_DEG_LON, (y2 - lat) * M_PER_DEG_LAT);
+          if (d <= radiusM) out.add(wi);
+        }
+      }
+    }
+    return out;
+  }
+}
+
 export interface Dataset {
   metro: Metro;
+  buses: Buses;
   pois: Pois;
   poiGrid: PointGrid;
   roads: Roads;
@@ -249,7 +312,11 @@ export function dataset(): Dataset {
   const poiGrid = new PointGrid(Float64Array.from(pois.lat), Float64Array.from(pois.lon), meta.bbox, 0.001);
   const roads = new Roads(zlib.gunzipSync(fs.readFileSync(path.join(dir, "roads.bin.gz"))), meta.bbox, meta.roadClasses);
   const metro: Metro = JSON.parse(fs.readFileSync(path.join(dir, "metro.json"), "utf8"));
-  cached = { metro, pois, poiGrid, roads, light, meta };
+  const busFile = path.join(dir, "bus.json.gz");
+  const buses = new Buses(
+    fs.existsSync(busFile) ? JSON.parse(zlib.gunzipSync(fs.readFileSync(busFile)).toString("utf8")) : { routes: [], ways: [] },
+  );
+  cached = { metro, buses, pois, poiGrid, roads, light, meta };
   return cached;
 }
 

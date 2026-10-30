@@ -5,6 +5,7 @@ const config: NextConfig = {
   outputFileTracingIncludes: {
     "/api/routes": ["./data/**/*"],
     "/api/timeline": ["./data/**/*"],
+    "/api/bus": ["./data/bus.json.gz"],
     "/api/meta": ["./data/meta.json"],
   },
   serverExternalPackages: ["opening_hours"],
