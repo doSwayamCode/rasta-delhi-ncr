@@ -64,7 +64,7 @@ export function tripCandidates(ds: Dataset, trip: Trip): Promise<Candidate[]> {
   const minClass = trip.mode === "walk" ? cls.indexOf("primary") : 0;
   const maxClass = cls.indexOf("tertiary");
   const value = candidates(trip.from, trip.to, trip.mode, (p) =>
-    nearestRoadPoint(ds, p, minClass, maxClass, trip.mode === "walk" ? 600 : 1500),
+    nearestRoadPoint(ds, p, minClass, maxClass, trip.mode === "walk" ? 1000 : 1500),
   );
   value.catch(() => cache.delete(key));
   cache.set(key, { at: now, value });
