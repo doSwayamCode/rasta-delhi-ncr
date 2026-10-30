@@ -29,6 +29,10 @@ open places instead of 6"), and you decide.
 - **Share a route:** the whole trip is in the URL.
 - **Light and dark mode:** follows the device by default.
 - **Feedback:** two-tap questions after each search, stored by the app and viewable at `/admin`.
+- **Installable app (PWA):**
+  - "Install app" on Android and desktop Chrome/Edge; Share → Add to Home Screen on iPhone.
+  - It opens full screen, and the home-screen icon has an SOS shortcut.
+  - Without a connection it opens from cache and shows every helpline.
 
 ## Data
 
@@ -88,16 +92,16 @@ npm run data
 
 | Variable | Purpose |
 | --- | --- |
-| `ADMIN_PASSWORD` | **Required for `/admin`.** Set it on your host; it is never stored in the repo. Without it, `/admin` stays locked. |
-| `ADMIN_SESSION_SECRET` | Optional extra secret for signing admin sessions |
+| `ADMIN_PASSWORD` | Optional. Changes the `/admin` password (the built-in one is stored only as a scrypt hash). |
 | `FEEDBACK_FILE` | Where answers are stored (default `.data/feedback.jsonl`) |
 | `FEEDBACK_WEBHOOK_URL`, `FEEDBACK_SECRET` | Optional Google Sheet mirror via [`scripts/feedback/Code.gs`](scripts/feedback/Code.gs); required on serverless hosts |
 | `OSRM_CAR_URL`, `OSRM_FOOT_URL` | Your own OSRM servers (recommended before launch) |
 
 ### Admin and feedback data
 
-`/admin` asks for `ADMIN_PASSWORD`. It shows every answer, a summary, and **Download CSV**, which reads the latest
-data on each click. Answers are stored in `FEEDBACK_FILE` on the server, which needs a persistent disk (a VM,
+`/admin` asks for the admin password; nothing needs setting up. The repo stores only a salted scrypt hash of it, and
+wrong attempts are limited to 5 per 10 minutes. To change the password, set `ADMIN_PASSWORD` on your host. The page
+shows every answer, a summary, and **Download CSV**, which reads the latest data on each click. Answers are stored in `FEEDBACK_FILE` on the server, which needs a persistent disk (a VM,
 Railway, Render, or Fly with a volume).
 
 On serverless hosts such as Vercel the disk isn't persistent. There, set up the Google Sheet mirror: paste

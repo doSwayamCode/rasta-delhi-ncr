@@ -11,6 +11,7 @@ import { useTheme } from "@/lib/theme";
 import { COMPONENT_LABEL, KIND_COLORS, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
 import PlaceSearch, { Picked, reverseGeocode } from "./PlaceSearch";
 import AlongRoute from "./AlongRoute";
+import InstallApp from "./InstallApp";
 import { HelplineList, RouteHelp, SosButton } from "./Emergency";
 import Feedback from "./Feedback";
 import TrustedContacts from "./TrustedContacts";
@@ -283,8 +284,15 @@ export default function App() {
       <aside className="panel">
         <header className="brand">
           <div className="brand-top">
-            <h1>Ghar Tak</h1>
-            <ThemeToggle />
+            <h1>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/logo.svg" alt="" width={30} height={30} />
+              Ghar Tak
+            </h1>
+            <div className="brand-actions">
+              <InstallApp />
+              <ThemeToggle />
+            </div>
           </div>
           <p>
             Compare routes across Delhi NCR by how open, lit and busy they are at the hour you travel. Not
