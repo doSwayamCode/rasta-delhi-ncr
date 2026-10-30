@@ -65,6 +65,14 @@ export function summary(r: ScoredRoute): string[] {
   }
   out.push(`${Math.round(s.mainRoadShare * 100)}% on main roads, ${Math.round(s.smallRoadShare * 100)}% on internal lanes or service roads`);
   if (r.components.cameras !== null) out.push(`${s.cameras} mapped CCTV camera${s.cameras === 1 ? "" : "s"} along the way`);
+  const first = r.coords[0], last = r.coords[r.coords.length - 1];
+  const straight = Math.hypot((last[0] - first[0]) * 97_900, (last[1] - first[1]) * 110_950);
+  if (straight > 500 && r.distance > straight * 2.2) {
+    out.push(
+      `This route is ${(r.distance / straight).toFixed(1)}× the straight-line distance: the router found no more direct ` +
+        `path (often a river, rail line or expressway without a crossing)`,
+    );
+  }
   if (s.coverage < 1) out.push(`${Math.round((1 - s.coverage) * 100)}% of this route is outside Rasta's data area and is not scored`);
   return out;
 }

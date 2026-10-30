@@ -1,15 +1,16 @@
 {
-  "built": "2026-10-30T14:22Z",
+  "built": "2026-10-30T14:53Z",
   "bbox": [
-    76.93,
-    28.36,
-    77.56,
-    28.66
+    76.8,
+    28.14,
+    77.7,
+    29.02
   ],
   "osmExtracts": {
-    "haryana": "2026-10-30",
     "national_capital_territory_of_delhi": "2026-10-30",
-    "uttar_pradesh": "2026-10-30"
+    "haryana": "2026-10-30",
+    "uttar_pradesh": "2026-10-30",
+    "rajasthan": "2026-10-30"
   },
   "overtureRelease": "2026-10-21.0",
   "overtureMinConfidence": 0.65,
@@ -62,21 +63,21 @@
     "cycleway"
   ],
   "counts": {
-    "hospital": 2407,
-    "police": 336,
-    "fuel": 639,
-    "pharmacy": 1464,
-    "food": 9744,
-    "grocery": 3265,
-    "shop": 18441,
-    "mall": 669,
-    "hotel": 4811,
-    "atm": 3304,
-    "metro": 842,
-    "bus": 2096,
-    "camera": 2545,
-    "lamp": 1143
+    "hospital": 3671,
+    "police": 512,
+    "fuel": 1260,
+    "pharmacy": 2032,
+    "food": 12474,
+    "grocery": 4800,
+    "shop": 25317,
+    "mall": 911,
+    "hotel": 5910,
+    "atm": 4599,
+    "metro": 1181,
+    "bus": 2647,
+    "camera": 3251,
+    "lamp": 1540
   },
-  "withOpeningHours": 1460,
-  "roads": 181774
+  "withOpeningHours": 1737,
+  "roads": 366631
 }

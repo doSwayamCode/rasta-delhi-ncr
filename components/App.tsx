@@ -149,7 +149,7 @@ export default function App() {
         <header className="brand">
           <h1>Rasta</h1>
           <p>
-            Compare routes across Gurgaon and Noida by how open, lit and busy they are at the hour you travel. Not
+            Compare routes across Delhi NCR by how open, lit and busy they are at the hour you travel. Not
             just the fastest way: the one with people around.
           </p>
         </header>
@@ -219,8 +219,8 @@ export default function App() {
             <div className="hint">
               <p>Search for two places, or tap the map to drop A, then B. Drag the pins to adjust.</p>
               <p className="muted">
-                Covers Gurgaon, Noida, Greater Noida West and the South and East Delhi stretch between them (the
-                dashed box on the map).
+                Covers all of Delhi, Gurugram and Manesar, Faridabad, Noida and Greater Noida, Ghaziabad, Sonipat,
+                Bahadurgarh and Bhiwadi (the dashed box on the map).
               </p>
             </div>
           ) : loading ? (
@@ -395,7 +395,7 @@ function About({ meta }: { meta: Meta | null }) {
       <ul>
         <li>Most places in NCR do not publish hours, so many open/closed states are category defaults.</li>
         <li>Satellite light is ~500 m per pixel and saturates in bright sectors: good at spotting dark belts (the Aravallis, the Yamuna floodplain), not single dark lanes.</li>
-        <li>CCTV mapping is dense in central Delhi and sparse in Gurgaon and Noida; where none is mapped, that factor is left out rather than scored as zero.</li>
+        <li>CCTV mapping is dense in central and south Delhi and sparse elsewhere in NCR; where none is mapped, that factor is left out rather than scored as zero.</li>
         <li>Public holidays are not modelled.</li>
       </ul>
     </div>

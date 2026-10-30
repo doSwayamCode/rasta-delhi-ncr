@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { M_PER_DEG_LAT, M_PER_DEG_LON } from "./geo";
+import zlib from "node:zlib";
+import { M_PER_DEG_LAT, M_PER_DEG_LON, pointSegDist } from "./geo";
 
 /** Must match KINDS in scripts/build_data.py. */
 export type Kind =
@@ -101,72 +102,117 @@ export class PointGrid {
   }
 }
 
-/** Road segments from roads.bin, indexed by segment midpoint. */
-export interface Roads {
-  /** Segment endpoints in degrees. */
-  ax: Float64Array; ay: Float64Array; bx: Float64Array; by: Float64Array;
-  cls: Uint8Array;
-  lit: Uint8Array;
-  grid: PointGrid;
-  classes: string[];
-}
+/**
+ * Road segments from roads.bin.gz. Vertices are shared Float32 arrays (~0.5 m precision here) and
+ * every segment is registered in each grid cell its bounding box touches, so long expressway
+ * segments need no splitting. This keeps all of NCR's ~5M road vertices in well under 100 MB.
+ */
+export class Roads {
+  readonly lon: Float32Array;
+  readonly lat: Float32Array;
+  /** Segment i runs from vertex seg[i] to vertex seg[i] + 1. */
+  readonly seg: Int32Array;
+  readonly cls: Uint8Array;
+  readonly lit: Uint8Array;
+  private start: Int32Array;
+  private ids: Int32Array;
+  private cols: number;
+  private rows: number;
+  private stamp: Int32Array;
+  private query = 0;
+  private static CELL = 0.001;
 
-const SEG_MAX_M = 50;
-
-/** Walks every segment in roads.bin, split into pieces of at most SEG_MAX_M metres. */
-function eachPiece(
-  dv: DataView,
-  fn: (ax: number, ay: number, bx: number, by: number, cls: number, lit: number) => void,
-) {
-  const ways = dv.getUint32(0, true);
-  let off = 4;
-  for (let w = 0; w < ways; w++) {
-    const c = dv.getUint8(off);
-    const l = dv.getUint8(off + 1);
-    const n = dv.getUint16(off + 2, true);
-    off += 4;
-    let plat = dv.getInt32(off, true) / 1e5;
-    let plon = dv.getInt32(off + 4, true) / 1e5;
-    for (let i = 1; i < n; i++) {
-      const lat = dv.getInt32(off + i * 8, true) / 1e5;
-      const lon = dv.getInt32(off + i * 8 + 4, true) / 1e5;
-      const len = Math.hypot((lon - plon) * M_PER_DEG_LON, (lat - plat) * M_PER_DEG_LAT);
-      const k = Math.max(1, Math.ceil(len / SEG_MAX_M));
-      for (let j = 0; j < k; j++) {
-        fn(
-          plon + ((lon - plon) * j) / k, plat + ((lat - plat) * j) / k,
-          plon + ((lon - plon) * (j + 1)) / k, plat + ((lat - plat) * (j + 1)) / k,
-          c, l,
-        );
-      }
-      plat = lat;
-      plon = lon;
+  constructor(raw: Buffer, readonly bbox: [number, number, number, number], readonly classes: string[]) {
+    const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    const ways = dv.getUint32(0, true);
+    let off = 4, verts = 0, segs = 0;
+    for (let w = 0; w < ways; w++) {
+      const n = dv.getUint16(off + 2, true);
+      verts += n;
+      segs += n - 1;
+      off += 4 + n * 8;
     }
-    off += n * 8;
+    this.lon = new Float32Array(verts);
+    this.lat = new Float32Array(verts);
+    this.seg = new Int32Array(segs);
+    this.cls = new Uint8Array(segs);
+    this.lit = new Uint8Array(segs);
+    off = 4;
+    let v = 0, s = 0;
+    for (let w = 0; w < ways; w++) {
+      const c = dv.getUint8(off), l = dv.getUint8(off + 1), n = dv.getUint16(off + 2, true);
+      off += 4;
+      for (let i = 0; i < n; i++, v++) {
+        this.lat[v] = dv.getInt32(off + i * 8, true) / 1e5;
+        this.lon[v] = dv.getInt32(off + i * 8 + 4, true) / 1e5;
+        if (i > 0) {
+          this.seg[s] = v - 1;
+          this.cls[s] = c;
+          this.lit[s] = l;
+          s++;
+        }
+      }
+      off += n * 8;
+    }
+
+    const C = Roads.CELL;
+    this.cols = Math.ceil((bbox[2] - bbox[0]) / C) + 1;
+    this.rows = Math.ceil((bbox[3] - bbox[1]) / C) + 1;
+    const counts = new Int32Array(this.cols * this.rows + 1);
+    const visit = (i: number, fn: (cell: number) => void) => {
+      const a = this.seg[i];
+      const x0 = this.cx(Math.min(this.lon[a], this.lon[a + 1])), x1 = this.cx(Math.max(this.lon[a], this.lon[a + 1]));
+      const y0 = this.cy(Math.min(this.lat[a], this.lat[a + 1])), y1 = this.cy(Math.max(this.lat[a], this.lat[a + 1]));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) fn(y * this.cols + x);
+    };
+    for (let i = 0; i < segs; i++) visit(i, (c) => counts[c + 1]++);
+    for (let c = 1; c < counts.length; c++) counts[c] += counts[c - 1];
+    this.start = counts;
+    this.ids = new Int32Array(counts[counts.length - 1]);
+    const fill = counts.slice();
+    for (let i = 0; i < segs; i++) visit(i, (c) => (this.ids[fill[c]++] = i));
+    this.stamp = new Int32Array(segs);
+  }
+
+  private cx(lon: number) {
+    return Math.max(0, Math.min(this.cols - 1, Math.floor((lon - this.bbox[0]) / Roads.CELL)));
+  }
+
+  private cy(lat: number) {
+    return Math.max(0, Math.min(this.rows - 1, Math.floor((lat - this.bbox[1]) / Roads.CELL)));
+  }
+
+  get segments() {
+    return this.seg.length;
+  }
+
+  /**
+   * Calls fn(segment, distanceM, axM, ayM, bxM, byM) once for every segment within radiusM, with
+   * endpoints in planar metres relative to (lon, lat).
+   */
+  near(
+    lon: number, lat: number, radiusM: number,
+    fn: (id: number, d: number, ax: number, ay: number, bx: number, by: number) => void,
+  ) {
+    const q = ++this.query;
+    const dLon = radiusM / M_PER_DEG_LON, dLat = radiusM / M_PER_DEG_LAT;
+    for (let y = this.cy(lat - dLat); y <= this.cy(lat + dLat); y++) {
+      for (let x = this.cx(lon - dLon); x <= this.cx(lon + dLon); x++) {
+        const c = y * this.cols + x;
+        for (let k = this.start[c]; k < this.start[c + 1]; k++) {
+          const id = this.ids[k];
+          if (this.stamp[id] === q) continue;
+          this.stamp[id] = q;
+          const a = this.seg[id];
+          const ax = (this.lon[a] - lon) * M_PER_DEG_LON, ay = (this.lat[a] - lat) * M_PER_DEG_LAT;
+          const bx = (this.lon[a + 1] - lon) * M_PER_DEG_LON, by = (this.lat[a + 1] - lat) * M_PER_DEG_LAT;
+          const d = pointSegDist(0, 0, ax, ay, bx, by);
+          if (d <= radiusM) fn(id, d, ax, ay, bx, by);
+        }
+      }
+    }
   }
 }
-
-function loadRoads(file: string, bbox: [number, number, number, number], classes: string[]): Roads {
-  const buf = fs.readFileSync(file);
-  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  let segs = 0;
-  eachPiece(dv, () => segs++);
-  const ax = new Float64Array(segs), ay = new Float64Array(segs);
-  const bx = new Float64Array(segs), by = new Float64Array(segs);
-  const mx = new Float64Array(segs), my = new Float64Array(segs);
-  const cls = new Uint8Array(segs), lit = new Uint8Array(segs);
-  let s = 0;
-  eachPiece(dv, (x1, y1, x2, y2, c, l) => {
-    ax[s] = x1; ay[s] = y1; bx[s] = x2; by[s] = y2;
-    mx[s] = (x1 + x2) / 2; my[s] = (y1 + y2) / 2;
-    cls[s] = c; lit[s] = l;
-    s++;
-  });
-  return { ax, ay, bx, by, cls, lit, grid: new PointGrid(my, mx, bbox, 0.0008), classes };
-}
-
-/** Pieces are indexed by midpoint, so a query must widen its radius by half a piece. */
-export const SEG_HALF_M = SEG_MAX_M / 2;
 
 export interface Dataset {
   pois: Pois;
@@ -182,10 +228,10 @@ export function dataset(): Dataset {
   if (cached) return cached;
   const dir = path.join(process.cwd(), "data");
   const meta: Meta = JSON.parse(fs.readFileSync(path.join(dir, "meta.json"), "utf8"));
-  const pois: Pois = JSON.parse(fs.readFileSync(path.join(dir, "pois.json"), "utf8"));
+  const pois: Pois = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(dir, "pois.json.gz"))).toString("utf8"));
   const light: Light = JSON.parse(fs.readFileSync(path.join(dir, "light.json"), "utf8"));
   const poiGrid = new PointGrid(Float64Array.from(pois.lat), Float64Array.from(pois.lon), meta.bbox, 0.001);
-  const roads = loadRoads(path.join(dir, "roads.bin"), meta.bbox, meta.roadClasses);
+  const roads = new Roads(zlib.gunzipSync(fs.readFileSync(path.join(dir, "roads.bin.gz"))), meta.bbox, meta.roadClasses);
   cached = { pois, poiGrid, roads, light, meta };
   return cached;
 }
@@ -215,10 +261,8 @@ export function nearestRoadPoint(
   const r = ds.roads;
   let best: [number, number] | null = null;
   let bestD = Infinity;
-  r.grid.near(p[0], p[1], maxM + SEG_HALF_M, (id) => {
+  r.near(p[0], p[1], maxM, (id, _d, ax, ay, bx, by) => {
     if (r.cls[id] < minClass || r.cls[id] > maxClass) return;
-    const ax = (r.ax[id] - p[0]) * M_PER_DEG_LON, ay = (r.ay[id] - p[1]) * M_PER_DEG_LAT;
-    const bx = (r.bx[id] - p[0]) * M_PER_DEG_LON, by = (r.by[id] - p[1]) * M_PER_DEG_LAT;
     const dx = bx - ax, dy = by - ay;
     const len2 = dx * dx + dy * dy;
     const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;

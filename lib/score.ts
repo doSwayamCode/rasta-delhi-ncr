@@ -1,5 +1,5 @@
-import { Dataset, Kind, SEG_HALF_M, radianceAt } from "./data";
-import { LngLat, M_PER_DEG_LAT, M_PER_DEG_LON, axis, axisDiff, pointSegDist, resample, simplify } from "./geo";
+import { Dataset, Kind, radianceAt } from "./data";
+import { LngLat, M_PER_DEG_LAT, M_PER_DEG_LON, axis, axisDiff, resample, simplify } from "./geo";
 import { HoursSource, OpenState, openAt } from "./hours";
 import { Candidate, Mode } from "./routing";
 
@@ -136,12 +136,7 @@ function snapRoad(ds: Dataset, lon: number, lat: number, routeAxis: number): Sna
   const r = ds.roads;
   let best = -1;
   let bestScore = Infinity;
-  const maxD = 20;
-  r.grid.near(lon, lat, maxD + SEG_HALF_M, (id) => {
-    const ax = (r.ax[id] - lon) * M_PER_DEG_LON, ay = (r.ay[id] - lat) * M_PER_DEG_LAT;
-    const bx = (r.bx[id] - lon) * M_PER_DEG_LON, by = (r.by[id] - lat) * M_PER_DEG_LAT;
-    const d = pointSegDist(0, 0, ax, ay, bx, by);
-    if (d > maxD) return;
+  r.near(lon, lat, 20, (id, d, ax, ay, bx, by) => {
     // At junctions the nearest way is often the crossing street; prefer roads running our way.
     const s = d + (axisDiff(axis(bx - ax, by - ay), routeAxis) > 35 ? 15 : 0);
     if (s < bestScore) {
@@ -155,9 +150,10 @@ function snapRoad(ds: Dataset, lon: number, lat: number, routeAxis: number): Sna
 const HELP_KINDS = new Set<Kind>(["hospital", "police"]);
 
 /**
- * OSM camera mapping in NCR is concentrated in central and south Delhi; most Gurgaon and Noida
- * sectors have none mapped, which says nothing about whether cameras exist. If no camera is mapped
- * within 1.5 km of any point on the route we treat the component as "no data", not as zero.
+ * OSM camera mapping in NCR is concentrated in central and south Delhi; most sectors of Gurugram,
+ * Noida, Faridabad and Ghaziabad have none mapped, which says nothing about whether cameras exist.
+ * If no camera is mapped within 1.5 km of any point on the route we treat the component as
+ * "no data", not as zero.
  */
 function camerasMappedNearby(ds: Dataset, samples: { lon: number; lat: number }[]): boolean {
   const cam = ds.pois.kinds.indexOf("camera");

@@ -1,6 +1,10 @@
 # Rasta
 
-Night-time route comparison for **Gurgaon, Noida and the South/East Delhi stretch between them**.
+Night-time route comparison for **Delhi NCR**: all of Delhi, Gurugram and Manesar, Faridabad and Ballabgarh,
+Noida and Greater Noida (up to the Jewar airport site), Ghaziabad, Sonipat and Kundli, Bahadurgarh and Bhiwadi.
+
+The coverage box is 28.14–29.02 °N, 76.80–77.70 °E, which is the continuous urban belt around Delhi. Statutory
+NCR also includes distant districts such as Meerut, Panipat, Rohtak and Alwar; those are outside the box for now.
 
 Give it two places, say whether you're walking or in a cab, and pick when you're leaving. Rasta fetches up to three
 genuinely different routes and scores each one for the hour you'll actually be on it:
@@ -13,7 +17,7 @@ genuinely different routes and scores each one for the hour you'll actually be o
 It doesn't pick a route for you. It shows the trade-off ("+4 min, but 30 open places instead of 6 and no 2 km
 dead stretch") and lets you decide.
 
-Inspired by [this demo](https://x.com/achinamayya/status/2115794397489205740), rebuilt for NCR on open data only.
+Inspired by [this demo](https://x.com/achinamayya/status/2115794397489205740), rebuilt for Delhi NCR on open data only.
 
 ## Data
 
@@ -21,16 +25,16 @@ Every number in the app comes from one of these sources. Nothing is generated or
 
 | What | Source | Notes |
 | --- | --- | --- |
-| Roads, `lit` tags, street lamps, CCTV, opening hours | OpenStreetMap: Haryana, Delhi and Uttar Pradesh extracts from [download.openstreetmap.fr](https://download.openstreetmap.fr/extracts/asia/india/) | 2,545 mapped cameras and 1,143 street lamps in the box; 1,460 places carry `opening_hours`. |
+| Roads, `lit` tags, street lamps, CCTV, opening hours | OpenStreetMap: Delhi, Haryana, Uttar Pradesh and Rajasthan (for Bhiwadi) extracts from [download.openstreetmap.fr](https://download.openstreetmap.fr/extracts/asia/india/) | 3,251 mapped cameras and 1,540 street lamps in the box; 1,737 places carry `opening_hours`. |
 | Shops, eateries, ATMs, hotels, hospitals, police, pumps | [Overture Maps](https://overturemaps.org) places, release `2026-10-21.0` | Much denser than OSM for Indian businesses. Only places with confidence ≥ 0.65 are kept; Overture duplicates of OSM places (same kind, within 40 m) are dropped. |
 | Night light | NASA Black Marble VNP46A2 / VJ146A2 (gap-filled, BRDF- and moonlight-corrected radiance) via [NASA GIBS](https://nasa-gibs.github.io/gibs-api-docs/) | Per-pixel median of the last 15 nights from both Suomi-NPP and NOAA-20 (30 passes). GIBS greyscale is converted back to nW/cm²/sr with GIBS's published colour map. |
 | Routes | [OSRM](https://project-osrm.org) car and foot profiles on FOSSGIS's public servers | Router alternatives plus detours via the nearest main road on either side of the direct line. |
 | Search | [Photon](https://photon.komoot.io) (komoot), restricted to the coverage box | |
 | Basemap | [OpenFreeMap](https://openfreemap.org) dark style | |
 
-Counts in the current build (`data/meta.json`): 18,441 shops, 9,744 eateries, 3,265 grocery/convenience stores,
-4,811 hotels, 3,304 ATMs, 2,407 hospitals, 1,464 pharmacies, 842 metro/rail stations, 669 malls, 639 petrol pumps,
-336 police stations, 2,096 bus stops.
+Counts in the current build (`data/meta.json`): 366,631 road ways; 25,317 shops, 12,474 eateries, 4,800
+grocery/convenience stores, 5,910 hotels, 4,599 ATMs, 3,671 hospitals, 2,032 pharmacies, 1,181 metro/rail stations,
+1,260 petrol pumps, 911 malls, 512 police stations, 2,647 bus stops.
 
 ## How the night score works
 
@@ -56,7 +60,7 @@ If less than 60% of a route lies inside the coverage box, it gets no score.
 
 ### Opening hours
 
-Only about 1 in 30 places in the dataset (1,457 of 45,922) has hours in OpenStreetMap, and Overture carries none. When a place has a real
+Only about 1 in 36 places in the dataset (1,734 of 62,667) has hours in OpenStreetMap, and Overture carries none. When a place has a real
 `opening_hours` tag it is evaluated exactly (with [opening_hours.js](https://github.com/opening-hours/opening_hours.js),
 in IST). Otherwise Rasta uses a **category default** and labels the place "hours assumed" in the map popup:
 
@@ -81,7 +85,8 @@ add `opening_hours` to those places in OpenStreetMap, which will show up in the 
   so it separates dark belts (the Aravalli ridge, the Yamuna floodplain, unbuilt sectors on the city edge) from
   lit areas well, but can't see one dark lane inside a bright sector. OSM `lit` tags and lamps refine this where
   they exist.
-- **CCTV mapping is uneven.** Dense around Connaught Place, Lodhi Road and South Delhi; sparse in Gurgaon and Noida.
+- **CCTV mapping is uneven.** Dense around Connaught Place, Lodhi Road and South Delhi; sparse in most of
+  Gurugram, Noida, Faridabad and Ghaziabad.
   This is why "no data" is handled separately from zero.
 - **Public holidays are not modelled.** opening_hours.js has no Indian holiday calendar, so `PH` rules are ignored.
 - **Not live.** Rasta can't know about a closed road, a power cut or what's happening on a street tonight. It
@@ -94,7 +99,9 @@ npm install
 npm run dev            # http://localhost:3000
 ```
 
-The built datasets are committed in `data/` (about 12 MB), so the app runs without rebuilding them.
+The built datasets are committed in `data/` (gzipped), so the app runs without rebuilding them. The API loads
+them once per server process: about 2 s on a cold start, then each request takes well under a second plus
+routing time.
 
 ### Rebuilding the data
 
@@ -103,7 +110,7 @@ pip install osmium duckdb numpy pillow
 npm run data           # = python3 scripts/build_data.py
 ```
 
-This downloads about 280 MB of OSM extracts into `.cache/`, queries Overture's public S3 bucket anonymously, pulls
+This downloads about 360 MB of OSM extracts into `.cache/`, queries Overture's public S3 bucket anonymously, pulls
 30 nights of VIIRS imagery from GIBS, and rewrites `data/`. It takes about 5 minutes. The coverage box, categories,
 assumed hours and the Overture confidence threshold are all at the top of
 [`scripts/build_data.py`](scripts/build_data.py).

@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   const outside = [from, to].some(([lon, lat]) => lon < W || lon > E || lat < S || lat > N);
   if (outside) {
     return Response.json(
-      { error: "Rasta currently covers Gurgaon, Noida and the Delhi stretch between them. Both points need to be inside that area." },
+      { error: "Rasta covers Delhi and the NCR cities around it (Gurugram, Manesar, Faridabad, Noida, Greater Noida, Ghaziabad, Sonipat, Bahadurgarh, Bhiwadi). Both points need to be inside that area." },
       { status: 422 },
     );
   }

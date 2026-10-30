@@ -6,11 +6,11 @@ Inputs (all open data, fetched by this script):
   * NASA VIIRS Black Marble gap-filled, BRDF/moonlight-corrected night radiance (VNP46A2 / VJ146A2)
     through NASA GIBS WMS, converted back to radiance with GIBS's published colour map
 
-Outputs in data/:
-  pois.json   places that keep a street "watched" after dark, cameras, street lamps, transit
-  roads.bin   every OSM road/footway in the box (class, lit tag, geometry) for snapping routes
-  light.json  median night radiance grid (nW/cm^2/sr)
-  meta.json   source versions, dates and counts, shown in the app
+Outputs in data/ (the two big files are gzipped):
+  pois.json.gz  places that keep a street "watched" after dark, cameras, street lamps, transit
+  roads.bin.gz  every OSM road/footway in the box (class, lit tag, geometry) for snapping routes
+  light.json    median night radiance grid (nW/cm^2/sr)
+  meta.json     source versions, dates and counts, shown in the app
 
 Usage:
   pip install osmium duckdb numpy pillow
@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import datetime as dt
+import gzip
 import io
 import json
 import math
@@ -39,13 +40,18 @@ ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / ".cache"
 OUT = ROOT / "data"
 
-# Gurgaon (incl. Sohna Road, Golf Course Ext.) + South/East Delhi + Noida + Greater Noida West.
-SOUTH, WEST, NORTH, EAST = 28.36, 76.93, 28.66, 77.56
+# Delhi NCR's continuous urban belt: all of Delhi, Gurugram + Manesar, Faridabad + Ballabgarh, Noida,
+# Greater Noida up to the Jewar airport site, Ghaziabad, Sonipat + Kundli, Bahadurgarh and Bhiwadi.
+# (Statutory NCR also covers far-off districts such as Meerut, Panipat and Alwar; they are outside.)
+SOUTH, WEST, NORTH, EAST = 28.14, 76.80, 29.02, 77.70
 
-OSM_EXTRACTS = ["haryana", "national_capital_territory_of_delhi", "uttar_pradesh"]
+OSM_EXTRACTS = ["national_capital_territory_of_delhi", "haryana", "uttar_pradesh", "rajasthan"]
 OSM_URL = "https://download.openstreetmap.fr/extracts/asia/india/{}-latest.osm.pbf"
 OVERTURE_RELEASE = "2026-10-21.0"
 UA = "rasta-data-build/1.0 (+https://github.com)"
+
+
+BOX_TAG = f"{SOUTH}_{WEST}_{NORTH}_{EAST}"
 
 
 def inside(lat: float, lon: float) -> bool:
@@ -224,7 +230,7 @@ OVERTURE_MIN_CONFIDENCE = 0.65
 def build_overture():
     import duckdb
 
-    cache = CACHE / f"overture-places-{OVERTURE_RELEASE}.parquet"
+    cache = CACHE / f"overture-places-{OVERTURE_RELEASE}-{BOX_TAG}.parquet"
     con = duckdb.connect()
     if not cache.exists():
         print("  querying Overture places (anonymous S3)")
@@ -324,7 +330,7 @@ def build_light():
                    f"&VERSION=1.3.0&LAYERS={layer}&CRS=EPSG:4326&BBOX={SOUTH},{WEST},{NORTH},{EAST}"
                    f"&WIDTH={w}&HEIGHT={h}&FORMAT=image/png&TIME={day.isoformat()}")
             try:
-                png = fetch(url, CACHE / "light" / f"{layer}-{day}.png").read_bytes()
+                png = fetch(url, CACHE / "light" / f"{layer}-{day}-{BOX_TAG}.png").read_bytes()
                 img = np.array(Image.open(io.BytesIO(png)).convert("RGBA"))
             except Exception as exc:  # missing day for one satellite is normal
                 print(f"  skip {layer} {day}: {exc}")
@@ -354,7 +360,7 @@ def build_light():
 
 def write_roads(roads, path: Path):
     """Binary: u32 count, then per way: u8 class, u8 lit, u16 n, n x (i32 lat*1e5, i32 lon*1e5)."""
-    with open(path, "wb") as f:
+    with gzip.open(path, "wb", compresslevel=9) as f:
         f.write(struct.pack("<I", len(roads)))
         for cls, lit, coords in roads:
             coords = coords[:65535]
@@ -394,8 +400,11 @@ def main():
         "hours": [p[4] for p in pois],
         "src": [0 if p[5] == "osm" else 1 for p in pois],
     }
-    (OUT / "pois.json").write_text(json.dumps(out, separators=(",", ":"), ensure_ascii=False))
-    write_roads(roads, OUT / "roads.bin")
+    with gzip.open(OUT / "pois.json.gz", "wt", encoding="utf-8", compresslevel=9) as f:
+        f.write(json.dumps(out, separators=(",", ":"), ensure_ascii=False))
+    write_roads(roads, OUT / "roads.bin.gz")
+    for stale in ("pois.json", "roads.bin"):
+        (OUT / stale).unlink(missing_ok=True)
     (OUT / "light.json").write_text(json.dumps(light, separators=(",", ":")))
 
     counts = {k: 0 for k in KIND_LIST}

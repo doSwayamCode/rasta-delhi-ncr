@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Rasta: night routes for Gurgaon & Noida",
+  title: "Rasta: night routes for Delhi NCR",
   description:
-    "Compare routes across Gurgaon and Noida by how open, lit and busy they are at the hour you travel.",
+    "Compare routes across Delhi NCR by how open, lit and busy they are at the hour you travel.",
 };
 
 export const viewport: Viewport = {

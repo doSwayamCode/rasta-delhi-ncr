@@ -8,7 +8,7 @@ import type { ScoredRoute } from "@/lib/score";
 import { KIND_COLOR } from "./format";
 
 const STYLE = "https://tiles.openfreemap.org/styles/dark";
-const NCR_CENTER: LngLatLike = [77.2, 28.5];
+const NCR_CENTER: LngLatLike = [77.2, 28.6];
 
 interface Props {
   bbox: [number, number, number, number] | null;
@@ -39,7 +39,7 @@ export default function MapView({ bbox, from, to, routes, selected, onPick, onMo
       container: el.current,
       style: STYLE,
       center: NCR_CENTER,
-      zoom: 10,
+      zoom: 9.3,
       attributionControl: { compact: true },
     });
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
