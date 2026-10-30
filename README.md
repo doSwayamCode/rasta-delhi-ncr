@@ -3,6 +3,36 @@
 Night-time route comparison for **Delhi NCR**: all of Delhi, Gurugram and Manesar, Faridabad and Ballabgarh,
 Noida and Greater Noida (up to the Jewar airport site), Ghaziabad, Sonipat and Kundli, Bahadurgarh and Bhiwadi.
 
+## Walkthrough (72 seconds)
+
+[![Rasta walkthrough: CP to Lajpat Nagar at 11 pm](docs/rasta-walkthrough-poster.jpg)](docs/rasta-walkthrough.mp4)
+
+**[Watch the walkthrough (MP4, 6.5 MB)](docs/rasta-walkthrough.mp4)**: English voice-over, Hindi captions
+burned in. Caption files: [Hindi](docs/rasta-walkthrough.hi.srt), [English](docs/rasta-walkthrough.en.srt).
+
+It is a real recording of the app, with no mock-ups: Connaught Place to Lajpat Nagar Central Market on foot at
+11 pm, then the score breakdown, the best-time-to-leave chart, the walk + metro option (Yellow Line to Central
+Secretariat, Violet Line to Lajpat Nagar), sharing, and the feedback form. The voice is a synthetic neural voice
+(Piper, `en_US-lessac-high`); [`docs/video/`](docs/video) has the script and the tools to re-record it with a
+real voice.
+
+<details>
+<summary>Narration and Hindi captions</summary>
+
+| English (voice-over) | हिंदी (कैप्शन) |
+| --- | --- |
+| This is Rasta, a night-time route checker for Delhi NCR. Most maps show you the fastest way home. Rasta shows you which way has people around. | यह है रास्ता: दिल्ली NCR के लिए रात के रास्तों की जाँच। ज़्यादातर मैप सबसे तेज़ रास्ता दिखाते हैं। रास्ता दिखाता है कि किस रास्ते पर लोग आसपास हैं। |
+| Pick where you're going, walking or a cab, and when you're leaving. Rasta finds up to three different routes, and scores each one for the hour you'll actually be on it. | कहाँ जाना है, पैदल या कैब, और कब निकलना है: चुनिए। रास्ता तीन तक अलग-अलग रास्ते ढूँढता है और हर एक को उसी समय के हिसाब से स्कोर करता है जब आप वहाँ होंगे। |
+| It checks what's open along the way: shops, chemists, petrol pumps and hospitals. Hollow pins will be closed when you pass. Red dashes are stretches with nothing open. | यह देखता है कि रास्ते में क्या खुला है: दुकानें, केमिस्ट, पेट्रोल पंप और अस्पताल। खाली गोले आपके गुज़रते समय बंद होंगे। लाल डैश वे हिस्से हैं जहाँ कुछ भी खुला नहीं। |
+| The score also weighs the type of road, NASA's satellite night light, CCTV mapped in OpenStreetMap, and how close help is. | स्कोर सड़क का प्रकार, NASA की सैटेलाइट रात-रोशनी, OpenStreetMap में दर्ज CCTV, और मदद कितनी पास है, यह सब भी देखता है। |
+| This chart shows how the route changes through the evening, so you can pick the best time to leave. | यह चार्ट दिखाता है कि शाम भर रास्ता कैसे बदलता है, ताकि आप निकलने का सबसे अच्छा समय चुन सकें। |
+| On foot, Rasta can also suggest walking plus metro, and reminds you to check the last train late at night. | पैदल चलने पर रास्ता पैदल + मेट्रो का विकल्प भी सुझाता है, और देर रात आख़िरी ट्रेन जाँचने की याद दिलाता है। |
+| One tap sends your route and arrival time to someone on WhatsApp. | एक टैप में अपना रास्ता और पहुँचने का समय WhatsApp पर भेजिए। |
+| And a two-tap question after each search helps tune the score with real answers. | हर खोज के बाद दो टैप के सवाल, असली जवाबों से स्कोर को बेहतर बनाते हैं। |
+| Built only on open data. It doesn't promise safety. It helps you choose. Rasta. For the ride home. | सिर्फ़ ओपन डेटा पर बना। यह सुरक्षा का वादा नहीं करता, चुनने में मदद करता है। रास्ता: घर तक के सफ़र के लिए। |
+
+</details>
+
 The coverage box is 28.14–29.02 °N, 76.80–77.70 °E, which is the continuous urban belt around Delhi. Statutory
 NCR also includes distant districts such as Meerut, Panipat, Rohtak and Alwar; those are outside the box for now.
 
@@ -194,7 +224,28 @@ app/api/routes          POST {from, to, mode, depart} → scored routes
 app/api/feedback        GET → {enabled}; POST anonymous answers → Google Sheet via Apps Script
 app/api/timeline        POST {from, to, mode, depart} → each route's score every 30 min, 6 pm–3 am IST
 components/             UI (MapLibre map, search, route cards, departure chart, share)
+docs/                   walkthrough video, captions, and docs/video/ to rebuild it
 ```
+
+## Name ideas
+
+"Rasta" is the working name. Some alternatives, chosen to describe what the app measures without promising
+safety (a name like "SafeRoute" implies a guarantee the data can't back):
+
+| Name | Meaning | Why it fits | Watch out for |
+| --- | --- | --- | --- |
+| **Jagmag** | Lit up, bustling (जगमग) | Exactly what the score looks for: light and life on the street | Playful tone; check app-store and domain availability |
+| **GharTak** | All the way home (घर तक) | Says the purpose plainly; matches the "for the ride home" line | Two words joined; spelling varies (Ghar Tak) |
+| **Chahal** | From चहल-पहल, people moving about | The core idea, eyes on the street, in one word | Also a common surname |
+| **Raat Rasta** | Night route (रात रास्ता) | Descriptive, easy to search, keeps the current name | Long-ish for an app icon |
+| **Jaagti Raah** | The road that's awake (जागती राह) | Evocative; night plus activity | Harder to type and spell in English |
+| **Roshan Raah** | Lit path (रोशन राह) | Simple, positive | Light is only one of seven factors |
+| **Rasta** (current) | Route (रास्ता) | Short, everyone in NCR knows the word | Very generic: hard to search for, many existing apps use it |
+
+Names I'd avoid: *Ujala* (a well-known existing brand) and *Raahgiri* (Gurugram's long-running car-free street
+event). None of the names above have been checked for trademarks, domains or app-store listings; do that before
+picking one. The video and app copy say "Rasta"; [`docs/video/README.md`](docs/video/README.md) explains how to
+regenerate the video under a new name.
 
 ## Licences and attribution
 

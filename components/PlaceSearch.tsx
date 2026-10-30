@@ -87,7 +87,12 @@ export default function PlaceSearch({ label, marker, value, bbox, placeholder, o
       const params = new URLSearchParams({ q, limit: "7", lang: "en", lat: "28.5", lon: "77.2" });
       if (bbox) params.set("bbox", bbox.join(","));
       try {
-        const res = await fetch(`${PHOTON}?${params}`, { signal: ac.signal });
+        // One quiet retry: flaky mobile connections drop the first request often enough to matter.
+        const res = await fetch(`${PHOTON}?${params}`, { signal: ac.signal }).catch(async (e) => {
+          if ((e as Error).name === "AbortError") throw e;
+          await new Promise((r) => setTimeout(r, 600));
+          return fetch(`${PHOTON}?${params}`, { signal: ac.signal });
+        });
         const body = await res.json();
         const seen = new Set<string>();
         const list: Hit[] = [];
