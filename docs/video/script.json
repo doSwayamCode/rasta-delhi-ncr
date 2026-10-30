@@ -1,7 +1,8 @@
 [
  {
   "id": "intro",
-  "en": "This is Rasta, a night-time route checker for Delhi N C R. Most maps show you the fastest way home. Rasta shows you which way has people around.",
+  "en": "This is Rasta, a night-time route checker for Delhi NCR. Most maps show you the fastest way home. Rasta shows you which way has people around.",
+  "say": "दिस इज़ रास्ता, अ नाइट-टाइम रूट चेकर फ़ॉर दिल्ली एन सी आर। मोस्ट मैप्स शो यू द फ़ास्टेस्ट वे होम। रास्ता शोज़ यू, विच वे हैज़ पीपल अराउंड।",
   "hi": [
    "यह है रास्ता: दिल्ली NCR के लिए रात के रास्तों की जाँच।",
    "ज़्यादातर मैप सबसे तेज़ रास्ता दिखाते हैं। रास्ता दिखाता है कि किस रास्ते पर लोग आसपास हैं।"
@@ -10,6 +11,7 @@
  {
   "id": "search",
   "en": "Pick where you're going, walking or a cab, and when you're leaving. Rasta finds up to three different routes, and scores each one for the hour you'll actually be on it.",
+  "say": "पिक, वेयर यू आर गोइंग, वाकिंग ऑर अ कैब, एंड वेन यू आर लीविंग। रास्ता फ़ाइंड्स अप टू थ्री डिफ़रेंट रूट्स, एंड स्कोर्स ईच वन फ़ॉर द आवर यू विल एक्चुअली बी ऑन इट।",
   "hi": [
    "कहाँ जाना है, पैदल या कैब, और कब निकलना है: चुनिए।",
    "रास्ता तीन तक अलग-अलग रास्ते ढूँढता है और हर एक को उसी समय के हिसाब से स्कोर करता है जब आप वहाँ होंगे।"
@@ -18,6 +20,7 @@
  {
   "id": "map",
   "en": "It checks what's open along the way: shops, chemists, petrol pumps and hospitals. Hollow pins will be closed when you pass. Red dashes are stretches with nothing open.",
+  "say": "इट चेक्स, वॉट्स ओपन अलॉन्ग द वे: शॉप्स, केमिस्ट्स, पेट्रोल पम्प्स एंड हॉस्पिटल्स। होलो पिन्स, विल बी क्लोज़्ड वेन यू पास। रेड डैशेज़ आर स्ट्रेचेज़ विद नथिंग ओपन।",
   "hi": [
    "यह देखता है कि रास्ते में क्या खुला है: दुकानें, केमिस्ट, पेट्रोल पंप और अस्पताल।",
    "खाली गोले आपके गुज़रते समय बंद होंगे। लाल डैश वे हिस्से हैं जहाँ कुछ भी खुला नहीं।"
@@ -26,6 +29,7 @@
  {
   "id": "score",
   "en": "The score also weighs the type of road, NASA's satellite night light, CCTV mapped in OpenStreetMap, and how close help is.",
+  "say": "द स्कोर ऑल्सो वेज़ द टाइप ऑफ़ रोड, नासाज़ सैटेलाइट नाइट लाइट, सी सी टी वी मैप्ड इन ओपन स्ट्रीट मैप, एंड हाउ क्लोज़ हेल्प इज़।",
   "hi": [
    "स्कोर सड़क का प्रकार, NASA की सैटेलाइट रात-रोशनी,",
    "OpenStreetMap में दर्ज CCTV, और मदद कितनी पास है, यह सब भी देखता है।"
@@ -34,6 +38,7 @@
  {
   "id": "timeline",
   "en": "This chart shows how the route changes through the evening, so you can pick the best time to leave.",
+  "say": "दिस चार्ट शोज़ हाउ द रूट चेंजेज़ थ्रू द ईवनिंग, सो यू कैन पिक द बेस्ट टाइम टू लीव।",
   "hi": [
    "यह चार्ट दिखाता है कि शाम भर रास्ता कैसे बदलता है,",
    "ताकि आप निकलने का सबसे अच्छा समय चुन सकें।"
@@ -42,6 +47,7 @@
  {
   "id": "metro",
   "en": "On foot, Rasta can also suggest walking plus metro, and reminds you to check the last train late at night.",
+  "say": "ऑन फ़ुट। रास्ता कैन ऑल्सो सजेस्ट वाकिंग प्लस मेट्रो, एंड रिमाइंड्स यू टू चेक द लास्ट ट्रेन, लेट एट नाइट।",
   "hi": [
    "पैदल चलने पर रास्ता पैदल + मेट्रो का विकल्प भी सुझाता है,",
    "और देर रात आख़िरी ट्रेन जाँचने की याद दिलाता है।"
@@ -49,21 +55,33 @@
  },
  {
   "id": "share",
-  "en": "One tap sends your route and arrival time to someone on WhatsApp.",
+  "en": "Save your trusted contacts once. Then one tap gets a message ready for all of them, with your route, arrival time and current location.",
+  "say": "सेव योर ट्रस्टेड कॉन्टैक्ट्स, वंस। देन, वन टैप गेट्स अ मैसेज रेडी फ़ॉर ऑल ऑफ़ देम, विद योर रूट, अराइवल टाइम, एंड करंट लोकेशन।",
   "hi": [
-   "एक टैप में अपना रास्ता और पहुँचने का समय WhatsApp पर भेजिए।"
+   "भरोसेमंद लोगों को एक बार सेव कीजिए।",
+   "फिर एक टैप में सबके लिए मैसेज तैयार: आपका रास्ता, पहुँचने का समय और अभी की लोकेशन।"
   ]
  },
  {
   "id": "feedback",
   "en": "And a two-tap question after each search helps tune the score with real answers.",
+  "say": "एंड अ टू-टैप क्वेश्चन आफ़्टर ईच सर्च, हेल्प्स ट्यून द स्कोर विद रियल आंसर्स।",
   "hi": [
    "हर खोज के बाद दो टैप के सवाल, असली जवाबों से स्कोर को बेहतर बनाते हैं।"
   ]
  },
  {
+  "id": "theme",
+  "en": "Prefer it bright? There's a light mode too.",
+  "say": "प्रेफ़र इट ब्राइट? देयर इज़ अ लाइट मोड टू।",
+  "hi": [
+   "रोशनी पसंद है? लाइट मोड भी है।"
+  ]
+ },
+ {
   "id": "outro",
   "en": "Built only on open data. It doesn't promise safety. It helps you choose. Rasta. For the ride home.",
+  "say": "बिल्ट ओनली ऑन ओपन डेटा। इट डज़न्ट प्रॉमिस सेफ़्टी। इट हेल्प्स यू चूज़। रास्ता। फ़ॉर द राइड होम।",
   "hi": [
    "सिर्फ़ ओपन डेटा पर बना। यह सुरक्षा का वादा नहीं करता, चुनने में मदद करता है।",
    "रास्ता: घर तक के सफ़र के लिए।"

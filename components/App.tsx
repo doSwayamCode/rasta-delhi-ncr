@@ -64,7 +64,7 @@ function readUrl() {
     to: pt(q.get("b"), q.get("bn")),
     mode: q.get("m") === "drive" ? ("drive" as const) : q.get("m") === "walk" ? ("walk" as const) : null,
     depart: t && !Number.isNaN(Date.parse(t)) ? new Date(t) : null,
-    route: r !== null && /^\d$/.test(r) ? Number(r) : null,
+    route: r !== null && /^\d{1,3}$/.test(r) ? Number(r) : null, // 0-2 routes, 100 = walk + metro
   };
 }
 

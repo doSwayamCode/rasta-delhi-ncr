@@ -90,6 +90,14 @@ export default function MapView({ bbox, from, to, routes, metro, selected, theme
       ready.current = true;
       draw(m, latest.current.routes, latest.current.metro, latest.current.selected, latest.current.theme);
     });
+    // Every later basemap swap (theme change) wipes custom layers; put them back each time.
+    m.on("style.load", () => {
+      const l = latest.current;
+      addOverlays(m, styleTheme.current ?? l.theme);
+      applyCoverage(m, l.bbox);
+      draw(m, l.routes, l.metro, l.selected, l.theme);
+      ready.current = true;
+    });
     map.current = m;
     return () => {
       m.remove();
@@ -111,14 +119,9 @@ export default function MapView({ bbox, from, to, routes, metro, selected, theme
     if (!m || styleTheme.current === actual) return;
     styleTheme.current = actual;
     ready.current = false;
-    m.setStyle(STYLES[actual]);
-    m.once("style.load", () => {
-      const l = latest.current;
-      addOverlays(m, l.theme);
-      applyCoverage(m, l.bbox);
-      draw(m, l.routes, l.metro, l.selected, l.theme);
-      ready.current = true;
-    });
+    // diff: false forces a full replace, so "style.load" fires and the handler set up at init
+    // re-adds Rasta's layers. A diffed update can drop custom layers without that event.
+    m.setStyle(STYLES[actual], { diff: false });
   }, [theme]);
 
   useEffect(() => {

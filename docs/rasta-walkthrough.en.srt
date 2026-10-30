@@ -1,36 +1,40 @@
 1
-00:00:00,250 --> 00:00:09,866
+00:00:00,300 --> 00:00:09,913
 This is Rasta, a night-time route checker for Delhi NCR. Most maps show you the fastest way home. Rasta shows you which way has people around.
 
 2
-00:00:10,479 --> 00:00:19,525
+00:00:10,613 --> 00:00:21,707
 Pick where you're going, walking or a cab, and when you're leaving. Rasta finds up to three different routes, and scores each one for the hour you'll actually be on it.
 
 3
-00:00:20,130 --> 00:00:31,604
+00:00:23,023 --> 00:00:33,426
 It checks what's open along the way: shops, chemists, petrol pumps and hospitals. Hollow pins will be closed when you pass. Red dashes are stretches with nothing open.
 
 4
-00:00:32,204 --> 00:00:40,296
+00:00:34,126 --> 00:00:42,044
 The score also weighs the type of road, NASA's satellite night light, CCTV mapped in OpenStreetMap, and how close help is.
 
 5
-00:00:40,898 --> 00:00:45,646
+00:00:42,747 --> 00:00:47,872
 This chart shows how the route changes through the evening, so you can pick the best time to leave.
 
 6
-00:00:46,252 --> 00:00:52,614
+00:00:48,578 --> 00:00:56,365
 On foot, Rasta can also suggest walking plus metro, and reminds you to check the last train late at night.
 
 7
-00:00:53,214 --> 00:00:57,092
-One tap sends your route and arrival time to someone on WhatsApp.
+00:00:57,071 --> 00:01:06,335
+Save your trusted contacts once. Then one tap gets a message ready for all of them, with your route, arrival time and current location.
 
 8
-00:00:57,694 --> 00:01:01,967
+00:01:07,035 --> 00:01:11,538
 And a two-tap question after each search helps tune the score with real answers.
 
 9
-00:01:02,567 --> 00:01:10,921
+00:01:14,938 --> 00:01:17,892
+Prefer it bright? There's a light mode too.
+
+10
+00:01:19,669 --> 00:01:27,516
 Built only on open data. It doesn't promise safety. It helps you choose. Rasta. For the ride home.
 
