@@ -31,13 +31,30 @@ interface OsrmRoute {
   legs: { summary: string }[];
 }
 
+/** One retry after a short pause for timeouts, network errors, 429 and 5xx from the shared router. */
+async function fetchWithRetry(url: string): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15_000) });
+      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 800));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      if (attempt > 0) throw e;
+      await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+}
+
 async function osrm(mode: Mode, points: LngLat[], alternatives: boolean): Promise<OsrmRoute[]> {
   const coords = points.map((p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`).join(";");
   const url =
     `${PROFILES[mode]}/${coords}?overview=full&geometries=geojson&steps=true` +
     (alternatives ? "&alternatives=3" : "") +
     (points.length > 2 ? "&continue_straight=true" : "");
-  const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15_000) });
+  const res = await fetchWithRetry(url);
   if (!res.ok) throw new Error(`router ${res.status}`);
   const body = await res.json();
   if (body.code !== "Ok") {
@@ -136,7 +153,10 @@ export async function candidates(
   const kept: Candidate[] = [];
   for (const c of pool.sort((a, b) => a.duration - b.duration)) {
     if (c.duration > fastest * slack + 120) continue;
-    if (hasLoop(c.coords) || overshoots(c.coords, from, to)) continue;
+    // Loop and overshoot checks are only for our own via-point detours. The router's routes keep
+    // their loops: a car on a divided road often has to pass the start or the destination and
+    // U-turn, and rejecting that left driving trips with no route at all.
+    if (c.origin === "via" && (hasLoop(c.coords) || overshoots(c.coords, from, to))) continue;
     // Different enough if either route has >20% of its length away from the other.
     if (kept.some((k) => overlap(c.coords, k.coords) > 0.8 && overlap(k.coords, c.coords) > 0.8)) continue;
     kept.push(c);
