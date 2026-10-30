@@ -4,7 +4,7 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   if (!adminConfigured()) {
-    return Response.json({ error: "Admin is not set up: ADMIN_PASSWORD is missing on the server." }, { status: 503 });
+    return Response.json({ error: "Admin is not set up: the server has no ADMIN_PASSWORD environment variable." }, { status: 503 });
   }
   if (loginThrottled(req)) return Response.json({ error: "Too many attempts. Try again in 10 minutes." }, { status: 429 });
   const body = await req.json().catch(() => ({}));

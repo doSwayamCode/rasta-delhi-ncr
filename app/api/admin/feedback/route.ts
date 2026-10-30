@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!adminConfigured()) return Response.json({ error: "Admin is not set up." }, { status: 503 });
+  if (!adminConfigured()) return Response.json({ error: "Admin is not set up: the server has no ADMIN_PASSWORD environment variable." }, { status: 503 });
   if (!isAdmin(req)) return unauthorized();
   try {
     const { rows, source } = await readFeedback();

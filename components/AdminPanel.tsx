@@ -119,7 +119,31 @@ export default function AdminPanel() {
       </header>
 
       {state.kind === "loading" && <p className="muted">Loading…</p>}
-      {state.kind === "unconfigured" && <div className="error">{state.message}</div>}
+      {state.kind === "unconfigured" && (
+        <section className="admin-setup">
+          <div className="error">{state.message}</div>
+          <h2>Set the admin password on your server</h2>
+          <p>
+            The password is read from an environment variable named <code>ADMIN_PASSWORD</code>, so it never sits in
+            the public code. Add it where the app runs, then restart or redeploy:
+          </p>
+          <ul>
+            <li>
+              <b>Vercel:</b> Project → Settings → Environment Variables → add <code>ADMIN_PASSWORD</code> with your
+              password (tick Production) → Save → Deployments → ⋯ on the latest → Redeploy.
+            </li>
+            <li>
+              <b>Render / Railway / Netlify:</b> the service&apos;s Environment (or Variables) settings → add{" "}
+              <code>ADMIN_PASSWORD</code> → redeploy.
+            </li>
+            <li>
+              <b>On your own computer:</b> create a file named <code>.env.local</code> in the project folder containing
+              the line <code>ADMIN_PASSWORD=your-password</code>, then stop and restart <code>npm run dev</code>.
+            </li>
+          </ul>
+          <p className="muted">Environment variables only take effect after a restart or redeploy.</p>
+        </section>
+      )}
       {state.kind === "error" && <div className="error">{state.message}</div>}
 
       {state.kind === "login" && (
