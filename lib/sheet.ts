@@ -8,7 +8,7 @@
  *
  * Both can be overridden with FEEDBACK_WEBHOOK_URL / FEEDBACK_SHEET_ID on the host.
  */
-const DEFAULT_SHEET_ID = "";
+const DEFAULT_SHEET_ID = "1H0kaT8fa2UOtFvZdNi6w6CojxDEMfGKe8qhQyNiGdMg"; // "Ghar Tak metadata"
 const DEFAULT_WEBHOOK = "";
 
 export const SHEET_ID = process.env.FEEDBACK_SHEET_ID || DEFAULT_SHEET_ID;
