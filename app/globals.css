@@ -1519,25 +1519,3 @@ dialog.sos-sheet::backdrop {
 .helplines .helplines-list {
   margin-top: 6px;
 }
-
-.admin-setup {
-  max-width: 720px;
-  margin-top: 16px;
-  font-size: 14px;
-}
-
-.admin-setup h2 {
-  font-size: 16px;
-  margin: 16px 0 6px;
-}
-
-.admin-setup li {
-  margin: 6px 0;
-}
-
-.admin-setup code {
-  font-size: 13px;
-  background: var(--raise);
-  padding: 1px 5px;
-  border-radius: 4px;
-}

@@ -1,12 +1,12 @@
-import { adminConfigured, isAdmin, unauthorized } from "@/lib/admin";
+import { guard } from "@/lib/admin";
 import { readFeedback } from "@/lib/feedbackStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!adminConfigured()) return Response.json({ error: "Admin is not set up: the server has no ADMIN_PASSWORD environment variable." }, { status: 503 });
-  if (!isAdmin(req)) return unauthorized();
+  const denied = guard(req);
+  if (denied) return denied;
   try {
     const { rows, source } = await readFeedback();
     return Response.json({ rows: rows.slice().reverse(), source }, { headers: { "Cache-Control": "no-store" } });

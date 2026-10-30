@@ -1,62 +1,73 @@
 import crypto from "node:crypto";
 
 /**
- * Admin access for /admin. The password comes from the ADMIN_PASSWORD environment variable and is
- * never stored in the repository. A successful login sets a signed, HttpOnly cookie that lasts
- * 12 hours; changing ADMIN_PASSWORD (or ADMIN_SESSION_SECRET) invalidates every session.
+ * Admin access for /admin: the page asks for the password and sends it with each admin request
+ * (x-admin-password header, over HTTPS). There are no sessions to forge.
+ *
+ * The repository holds only a salted scrypt hash of the password, never the password itself.
+ * Setting ADMIN_PASSWORD on the server overrides it (use this to change the password).
  */
-const COOKIE = "ghartak_admin";
-const TTL_S = 12 * 3600;
+const DEFAULT_HASH = "scrypt$15$8$1$9rdiUHyNkpTbUi82V2MvvA$s1QymQioqJHsafJZCJ_M0-kkBajyMQ0St_zvw0kX0M0";
 
-export const adminConfigured = () => Boolean(process.env.ADMIN_PASSWORD);
-
-function key(): Buffer {
-  return crypto
-    .createHash("sha256")
-    .update(`ghartak-admin:${process.env.ADMIN_PASSWORD ?? ""}:${process.env.ADMIN_SESSION_SECRET ?? ""}`)
-    .digest();
+function checkAgainstHash(given: string, stored: string): boolean {
+  const [alg, n, r, p, salt, hash] = stored.split("$");
+  if (alg !== "scrypt") return false;
+  const want = Buffer.from(hash, "base64url");
+  const got = crypto.scryptSync(given, Buffer.from(salt, "base64url"), want.length, {
+    N: 2 ** Number(n), r: Number(r), p: Number(p), maxmem: 64 * 1024 * 1024,
+  });
+  return crypto.timingSafeEqual(got, want);
 }
 
-const sign = (payload: string) => crypto.createHmac("sha256", key()).update(payload).digest("base64url");
+// scrypt is deliberately slow (~0.1 s); remember recent correct passwords for 10 minutes.
+const verified = new Map<string, number>();
 
 export function checkPassword(given: string): boolean {
-  const want = process.env.ADMIN_PASSWORD;
-  if (!want) return false;
-  const a = crypto.createHash("sha256").update(given).digest();
-  const b = crypto.createHash("sha256").update(want).digest();
-  return crypto.timingSafeEqual(a, b);
+  if (!given || given.length > 200) return false;
+  const env = process.env.ADMIN_PASSWORD;
+  if (env) {
+    const a = crypto.createHash("sha256").update(given).digest();
+    const b = crypto.createHash("sha256").update(env).digest();
+    return crypto.timingSafeEqual(a, b);
+  }
+  const key = crypto.createHash("sha256").update(given).digest("base64");
+  const until = verified.get(key);
+  if (until && until > Date.now()) return true;
+  const ok = checkAgainstHash(given, DEFAULT_HASH);
+  if (ok) verified.set(key, Date.now() + 10 * 60_000);
+  return ok;
 }
 
-export function sessionCookie(): string {
-  const exp = Math.floor(Date.now() / 1000) + TTL_S;
-  const value = `${exp}.${sign(String(exp))}`;
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${TTL_S}${secure}`;
-}
+// Throttle wrong passwords: 5 per IP per 10 minutes, per server instance.
+const failures = new Map<string, number[]>();
+const ipOf = (req: Request) => req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
 
-export const clearCookie = () => `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`;
-
-export function isAdmin(req: Request): boolean {
-  if (!adminConfigured()) return false;
-  const raw = req.headers.get("cookie") ?? "";
-  const m = new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`).exec(raw);
-  if (!m) return false;
-  const [exp, sig] = m[1].split(".");
-  if (!exp || !sig || Number(exp) * 1000 < Date.now()) return false;
-  const want = sign(exp);
-  return want.length === sig.length && crypto.timingSafeEqual(Buffer.from(want), Buffer.from(sig));
-}
-
-// Login throttling: 5 attempts per IP per 10 minutes, per server instance.
-const attempts = new Map<string, number[]>();
-export function loginThrottled(req: Request): boolean {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+export function throttled(req: Request): boolean {
   const now = Date.now();
-  const recent = (attempts.get(ip) ?? []).filter((t) => now - t < 10 * 60_000);
-  recent.push(now);
-  attempts.set(ip, recent);
-  if (attempts.size > 10_000) attempts.clear();
-  return recent.length > 5;
+  const recent = (failures.get(ipOf(req)) ?? []).filter((t) => now - t < 10 * 60_000);
+  failures.set(ipOf(req), recent);
+  return recent.length >= 5;
 }
 
-export const unauthorized = () => Response.json({ error: "Not signed in." }, { status: 401 });
+function recordFailure(req: Request) {
+  const list = failures.get(ipOf(req)) ?? [];
+  list.push(Date.now());
+  failures.set(ipOf(req), list);
+  if (failures.size > 10_000) failures.clear();
+}
+
+/** Checks a password from a login form or the x-admin-password header; counts failures. */
+export function verify(req: Request, password: string | null): "ok" | "wrong" | "throttled" {
+  if (throttled(req)) return "throttled";
+  if (password !== null && checkPassword(password)) return "ok";
+  recordFailure(req);
+  return "wrong";
+}
+
+export function guard(req: Request): Response | null {
+  const r = verify(req, req.headers.get("x-admin-password"));
+  if (r === "ok") return null;
+  return r === "throttled"
+    ? Response.json({ error: "Too many wrong passwords. Try again in 10 minutes." }, { status: 429 })
+    : Response.json({ error: "Wrong password." }, { status: 401 });
+}
