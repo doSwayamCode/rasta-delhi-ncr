@@ -9,7 +9,8 @@
  * Both can be overridden with FEEDBACK_WEBHOOK_URL / FEEDBACK_SHEET_ID on the host.
  */
 const DEFAULT_SHEET_ID = "1H0kaT8fa2UOtFvZdNi6w6CojxDEMfGKe8qhQyNiGdMg"; // "Ghar Tak metadata"
-const DEFAULT_WEBHOOK = "";
+const DEFAULT_WEBHOOK =
+  "https://script.google.com/macros/s/AKfycbwwoMpIoItTwKDbDs0tif0iO0c3ywPIm74nEQ0NG79OFxroru0ZRmaDO65nROn96__DDQ/exec";
 
 export const SHEET_ID = process.env.FEEDBACK_SHEET_ID || DEFAULT_SHEET_ID;
 export const SHEET_WEBHOOK = process.env.FEEDBACK_WEBHOOK_URL || DEFAULT_WEBHOOK;
