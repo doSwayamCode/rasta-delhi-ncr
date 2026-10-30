@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadContacts, sendToContacts } from "@/lib/contacts";
 import type { HelpPoint } from "@/lib/score";
 import { fmtDistance } from "./format";
@@ -38,6 +38,11 @@ export function HelplineList({ compact = false }: { compact?: boolean }) {
 export function SosButton() {
   const dialog = useRef<HTMLDialogElement>(null);
   const [status, setStatus] = useState<string | null>(null);
+
+  // The installed app's "SOS" home-screen shortcut opens /?sos=1.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("sos") === "1") dialog.current?.showModal();
+  }, []);
 
   const alertContacts = async () => {
     const list = loadContacts();

@@ -6,6 +6,9 @@ export const metadata: Metadata = {
   title: "Ghar Tak: night routes for Delhi NCR",
   description:
     "Compare routes across Delhi NCR by how open, lit and busy they are at the hour you travel.",
+  applicationName: "Ghar Tak",
+  appleWebApp: { capable: true, title: "Ghar Tak", statusBarStyle: "black-translucent" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {

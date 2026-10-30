@@ -1,15 +1,11 @@
-import { adminConfigured, checkPassword, loginThrottled, sessionCookie } from "@/lib/admin";
+import { verify } from "@/lib/admin";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  if (!adminConfigured()) {
-    return Response.json({ error: "Admin is not set up: ADMIN_PASSWORD is missing on the server." }, { status: 503 });
-  }
-  if (loginThrottled(req)) return Response.json({ error: "Too many attempts. Try again in 10 minutes." }, { status: 429 });
   const body = await req.json().catch(() => ({}));
-  if (typeof body.password !== "string" || !checkPassword(body.password)) {
-    return Response.json({ error: "Wrong password." }, { status: 401 });
-  }
-  return Response.json({ ok: true }, { headers: { "Set-Cookie": sessionCookie() } });
+  const r = verify(req, typeof body.password === "string" ? body.password : null);
+  if (r === "throttled") return Response.json({ error: "Too many wrong passwords. Try again in 10 minutes." }, { status: 429 });
+  if (r === "wrong") return Response.json({ error: "Wrong password." }, { status: 401 });
+  return Response.json({ ok: true });
 }

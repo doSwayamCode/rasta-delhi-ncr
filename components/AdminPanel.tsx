@@ -7,7 +7,6 @@ type Row = Record<string, string | number | boolean | null>;
 type State =
   | { kind: "loading" }
   | { kind: "login"; error?: string }
-  | { kind: "unconfigured"; message: string }
   | { kind: "error"; message: string }
   | { kind: "ready"; rows: Row[]; source: string; at: Date };
 
@@ -63,11 +62,28 @@ export default function AdminPanel() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [password, setPassword] = useState("");
 
-  const load = useCallback(async () => {
-    const res = await fetch("/api/admin/feedback", { cache: "no-store" });
+  // The password lives only in this tab (sessionStorage) and goes with each admin request.
+  const KEY = "ghartak-admin";
+  const saved = () => {
+    try {
+      return sessionStorage.getItem(KEY);
+    } catch {
+      return null;
+    }
+  };
+
+  const load = useCallback(async (pw: string | null = saved()) => {
+    if (!pw) return setState({ kind: "login" });
+    const res = await fetch("/api/admin/feedback", { cache: "no-store", headers: { "x-admin-password": pw } });
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401) return setState({ kind: "login" });
-    if (res.status === 503) return setState({ kind: "unconfigured", message: body.error ?? "Admin is not set up." });
+    if (res.status === 401 || res.status === 429) {
+      try {
+        sessionStorage.removeItem(KEY);
+      } catch {
+        // ignore
+      }
+      return setState({ kind: "login", error: res.status === 429 ? body.error : undefined });
+    }
     if (!res.ok) return setState({ kind: "error", message: body.error ?? `Failed (${res.status})` });
     setState({ kind: "ready", rows: body.rows, source: body.source, at: new Date() });
   }, []);
@@ -78,18 +94,40 @@ export default function AdminPanel() {
 
   const login = async (e: React.FormEvent) => {
     e.preventDefault();
+    const pw = password;
     const res = await fetch("/api/admin/login", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: pw }),
     });
     const body = await res.json().catch(() => ({}));
     setPassword("");
     if (!res.ok) return setState({ kind: "login", error: body.error ?? "Could not sign in." });
-    load();
+    try {
+      sessionStorage.setItem(KEY, pw);
+    } catch {
+      // storage blocked: still works for this page view
+    }
+    load(pw);
   };
 
-  const logout = async () => {
-    await fetch("/api/admin/logout", { method: "POST" });
+  const logout = () => {
+    try {
+      sessionStorage.removeItem(KEY);
+    } catch {
+      // ignore
+    }
     setState({ kind: "login" });
+  };
+
+  const downloadCsv = async () => {
+    const res = await fetch("/api/admin/export", { headers: { "x-admin-password": saved() ?? "" } });
+    if (!res.ok) return load();
+    const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "ghar-tak-feedback.csv";
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
   const rows = state.kind === "ready" ? state.rows : [];
@@ -111,15 +149,14 @@ export default function AdminPanel() {
         <h1>Ghar Tak · Feedback</h1>
         {state.kind === "ready" && (
           <div className="admin-actions">
-            <a className="btn primary" href="/api/admin/export">Download CSV</a>
-            <button type="button" className="btn" onClick={load}>Refresh</button>
+            <button type="button" className="btn primary" onClick={downloadCsv}>Download CSV</button>
+            <button type="button" className="btn" onClick={() => load()}>Refresh</button>
             <button type="button" className="link" onClick={logout}>Sign out</button>
           </div>
         )}
       </header>
 
       {state.kind === "loading" && <p className="muted">Loading…</p>}
-      {state.kind === "unconfigured" && <div className="error">{state.message}</div>}
       {state.kind === "error" && <div className="error">{state.message}</div>}
 
       {state.kind === "login" && (

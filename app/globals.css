@@ -154,6 +154,7 @@ a {
 /* Panel ----------------------------------------------------------------- */
 
 .brand {
+  position: relative;
   padding: 20px 20px 4px;
 }
 
@@ -187,16 +188,45 @@ a {
   letter-spacing: 0.01em;
 }
 
-.brand h1::after {
-  content: "";
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-left: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 10px var(--accent);
-  vertical-align: 4px;
+.brand h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand h1 img {
+  border-radius: 7px;
+}
+
+.brand-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.install-btn {
+  background: var(--accent-fill);
+  color: #121821;
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.install-tip {
+  position: absolute;
+  margin: 0;
+  right: 20px;
+  top: 56px;
+  z-index: 5;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--raise);
+  border: 1px solid var(--line);
+  font-size: 13px;
 }
 
 .brand p {
