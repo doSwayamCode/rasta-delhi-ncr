@@ -18,6 +18,9 @@ interface Props {
   metro: MetroOption | null;
   selected: number;
   theme: Theme;
+  /** Place kinds hidden by the person. CCTV ("camera") is never hidden. */
+  hidden: string[];
+  showBuses: boolean;
   onPick: (p: LngLat) => void;
   onMove: (which: "from" | "to", p: LngLat) => void;
   onSelect: (id: number) => void;
@@ -25,15 +28,17 @@ interface Props {
 
 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
-export default function MapView({ bbox, from, to, routes, metro, selected, theme, onPick, onMove, onSelect }: Props) {
+export default function MapView({
+  bbox, from, to, routes, metro, selected, theme, hidden, showBuses, onPick, onMove, onSelect,
+}: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MlMap | null>(null);
   const ready = useRef(false);
   const markers = useRef<{ from?: Marker; to?: Marker }>({});
   const handlers = useRef({ onPick, onMove, onSelect });
   handlers.current = { onPick, onMove, onSelect };
-  const latest = useRef({ routes, metro, selected, theme, bbox });
-  latest.current = { routes, metro, selected, theme, bbox };
+  const latest = useRef({ routes, metro, selected, theme, bbox, hidden, showBuses });
+  latest.current = { routes, metro, selected, theme, bbox, hidden, showBuses };
   const styleTheme = useRef<Theme | null>(null);
 
   useEffect(() => {
@@ -88,14 +93,16 @@ export default function MapView({ bbox, from, to, routes, metro, selected, theme
       });
 
       ready.current = true;
-      draw(m, latest.current.routes, latest.current.metro, latest.current.selected, latest.current.theme);
+      draw(m, latest.current.routes, latest.current.metro, latest.current.selected, latest.current.theme, latest.current.hidden);
+      applyBuses(m, latest.current.showBuses);
     });
     // Every later basemap swap (theme change) wipes custom layers; put them back each time.
     m.on("style.load", () => {
       const l = latest.current;
       addOverlays(m, styleTheme.current ?? l.theme);
       applyCoverage(m, l.bbox);
-      draw(m, l.routes, l.metro, l.selected, l.theme);
+      draw(m, l.routes, l.metro, l.selected, l.theme, l.hidden);
+      applyBuses(m, l.showBuses);
       ready.current = true;
     });
     map.current = m;
@@ -111,7 +118,7 @@ export default function MapView({ bbox, from, to, routes, metro, selected, theme
     if (m && ready.current) applyCoverage(m, bbox);
   }, [bbox]);
 
-  // Theme change: swap the basemap, then put Rasta's layers back on top of it.
+  // Theme change: swap the basemap, then put Ghar Tak's layers back on top of it.
   useEffect(() => {
     const m = map.current;
     // <html data-theme> is updated before React state, so it is the reliable value on first mount.
@@ -120,7 +127,7 @@ export default function MapView({ bbox, from, to, routes, metro, selected, theme
     styleTheme.current = actual;
     ready.current = false;
     // diff: false forces a full replace, so "style.load" fires and the handler set up at init
-    // re-adds Rasta's layers. A diffed update can drop custom layers without that event.
+    // re-adds Ghar Tak's layers. A diffed update can drop custom layers without that event.
     m.setStyle(STYLES[actual], { diff: false });
   }, [theme]);
 
@@ -159,8 +166,13 @@ export default function MapView({ bbox, from, to, routes, metro, selected, theme
   useEffect(() => {
     const m = map.current;
     if (!m || !ready.current) return;
-    draw(m, routes, metro, selected, theme);
-  }, [routes, metro, selected, theme]);
+    draw(m, routes, metro, selected, theme, hidden);
+  }, [routes, metro, selected, theme, hidden]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (m && ready.current) applyBuses(m, showBuses);
+  }, [showBuses]);
 
   useEffect(() => {
     const m = map.current;
@@ -182,14 +194,20 @@ const STYLES: Record<Theme, string> = {
 };
 
 const OVERLAY: Record<Theme, Record<string, string>> = {
-  dark: { coverage: "#f5b942", alt: "#6b7480", casing: "#0b0d10", selected: "#e8eaed", hole: "#0e1116", label: "#e8eaed", gap: "#ff4d40" },
-  light: { coverage: "#a85b06", alt: "#a3abb6", casing: "#ffffff", selected: "#1f2a37", hole: "#ffffff", label: "#121821", gap: "#e0362b" },
+  dark: { bus: "#2dd4bf", coverage: "#f5b942", alt: "#6b7480", casing: "#0b0d10", selected: "#e8eaed", hole: "#0e1116", label: "#e8eaed", gap: "#ff4d40" },
+  light: { bus: "#0f766e", coverage: "#a85b06", alt: "#a3abb6", casing: "#ffffff", selected: "#1f2a37", hole: "#ffffff", label: "#121821", gap: "#e0362b" },
 };
 
-/** Sources and layers Rasta draws on top of the basemap. setStyle() drops them, so this re-runs per style. */
+/** Sources and layers Ghar Tak draws on top of the basemap. setStyle() drops them, so this re-runs per style. */
 function addOverlays(m: MlMap, theme: Theme) {
   if (m.getSource("routes")) return; // already on this style (initial load and style.load can both fire)
   const c = OVERLAY[theme];
+  // Bus corridors sit underneath everything else and start hidden.
+  m.addSource("bus", { type: "geojson", data: busData ?? empty });
+  m.addLayer({
+    id: "bus", type: "line", source: "bus", layout: { visibility: "none", "line-join": "round" },
+    paint: { "line-color": c.bus, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1, 15, 3], "line-opacity": 0.6 },
+  });
     m.addSource("routes", { type: "geojson", data: empty });
     m.addSource("gaps", { type: "geojson", data: empty });
     m.addSource("places", { type: "geojson", data: empty });
@@ -259,6 +277,27 @@ function addOverlays(m: MlMap, theme: Theme) {
     });
 }
 
+/** Major bus routes, fetched once on first use and kept for later style swaps. */
+let busData: GeoJSON.FeatureCollection | null = null;
+let busLoading: Promise<void> | null = null;
+
+function applyBuses(m: MlMap, show: boolean) {
+  if (!m.getLayer("bus")) return;
+  m.setLayoutProperty("bus", "visibility", show ? "visible" : "none");
+  if (!show || busData) return;
+  busLoading ??= fetch("/api/bus")
+    .then((r) => r.json())
+    .then((d) => {
+      busData = d;
+    })
+    .catch(() => {
+      busLoading = null;
+    });
+  busLoading.then(() => {
+    if (busData) (m.getSource("bus") as GeoJSONSource | undefined)?.setData(busData);
+  });
+}
+
 function applyCoverage(m: MlMap, bbox: [number, number, number, number] | null) {
   if (!bbox) return;
   const [w, s, e, n] = bbox;
@@ -287,7 +326,9 @@ const KIND_LABEL: Record<string, string> = {
   grocery: "Grocery", shop: "Shop", mall: "Mall", hotel: "Hotel", atm: "ATM", metro: "Station",
 };
 
-function draw(m: MlMap, routes: ScoredRoute[], metro: MetroOption | null, selected: number, theme: Theme) {
+function draw(
+  m: MlMap, routes: ScoredRoute[], metro: MetroOption | null, selected: number, theme: Theme, hidden: string[],
+) {
   const kindColor = KIND_COLORS[theme];
   const metroSel = metro !== null && selected === metro.id;
   // The metro option's walking legs are drawn like routes, all under the metro option's id.
@@ -335,7 +376,7 @@ function draw(m: MlMap, routes: ScoredRoute[], metro: MetroOption | null, select
   (m.getSource("places") as GeoJSONSource).setData({
     type: "FeatureCollection",
     features: [
-      ...places.map((p) => ({
+      ...places.filter((p) => !hidden.includes(p.kind)).map((p) => ({
         type: "Feature" as const,
         properties: {
           name: p.name, label: KIND_LABEL[p.kind] ?? p.kind, open: p.open, hours: p.hours, oh: p.oh ?? "",

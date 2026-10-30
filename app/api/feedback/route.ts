@@ -1,18 +1,16 @@
 import { dataset } from "@/lib/data";
 import { CHOICES } from "@/lib/feedback";
+import { appendFeedback } from "@/lib/feedbackStore";
 
 export const runtime = "nodejs";
 
 /**
- * Anonymous route feedback, appended to a Google Sheet through an Apps Script web app
- * (scripts/feedback/Code.gs). Set FEEDBACK_WEBHOOK_URL and FEEDBACK_SECRET to switch it on.
+ * Anonymous route feedback. Rows go to the internal store, and to the Google Sheet too when one is
+ * configured (lib/feedbackStore.ts); /admin shows them and exports CSV.
  *
  * Privacy: no IP, no exact points. Start and end are rounded to 0.01° (about 1 km), so a row can
  * say "Sector 18 to Sector 62" but not which building. Nothing free-text is accepted.
  */
-const WEBHOOK = process.env.FEEDBACK_WEBHOOK_URL;
-const SECRET = process.env.FEEDBACK_SECRET ?? "";
-
 type Choice<K extends keyof typeof CHOICES> = (typeof CHOICES)[K][number];
 
 const COMPONENTS = ["activity", "gaps", "light", "roads", "help", "cameras", "transit"] as const;
@@ -40,11 +38,10 @@ const pick = <K extends keyof typeof CHOICES>(k: K, v: unknown): Choice<K> | nul
   (CHOICES[k] as readonly string[]).includes(String(v)) ? (v as Choice<K>) : null;
 
 export function GET() {
-  return Response.json({ enabled: Boolean(WEBHOOK) });
+  return Response.json({ enabled: true });
 }
 
 export async function POST(req: Request) {
-  if (!WEBHOOK) return Response.json({ error: "Feedback is not configured." }, { status: 503 });
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   if (limited(ip)) return Response.json({ error: "Too many submissions; try again in a minute." }, { status: 429 });
 
@@ -78,6 +75,7 @@ export async function POST(req: Request) {
     submitted_at: new Date().toISOString(),
     data_build: dataset().meta.built,
     mode: b.mode,
+    teen_mode: b.teen === true,
     depart_ist: ist.toISOString().slice(0, 16).replace("T", " "),
     depart_hour_ist: ist.getUTCHours(),
     from_area: `${round2(from[1])},${round2(from[0])}`,
@@ -97,21 +95,7 @@ export async function POST(req: Request) {
   };
 
   try {
-    const res = await fetch(WEBHOOK, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ secret: SECRET, row }),
-      redirect: "follow",
-      signal: AbortSignal.timeout(10_000),
-    });
-    const text = await res.text();
-    let ok = false;
-    try {
-      ok = JSON.parse(text).ok === true;
-    } catch {
-      // Apps Script answers with an HTML error page when the deployment is wrong.
-    }
-    if (!res.ok || !ok) throw new Error(text.slice(0, 120) || String(res.status));
+    await appendFeedback(row);
   } catch (e) {
     return Response.json({ error: `Could not save feedback (${(e as Error).message}).` }, { status: 502 });
   }

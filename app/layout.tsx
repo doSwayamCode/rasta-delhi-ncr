@@ -3,7 +3,7 @@ import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Rasta: night routes for Delhi NCR",
+  title: "Ghar Tak: night routes for Delhi NCR",
   description:
     "Compare routes across Delhi NCR by how open, lit and busy they are at the hour you travel.",
 };

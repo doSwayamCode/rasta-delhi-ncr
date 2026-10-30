@@ -1,5 +1,5 @@
 /**
- * Rasta feedback receiver: a Google Apps Script web app bound to the feedback Google Sheet.
+ * Ghar Tak feedback receiver: a Google Apps Script web app bound to the feedback Google Sheet.
  *
  * Setup (once):
  *   1. Open the sheet > Extensions > Apps Script, paste this file, save.
@@ -7,6 +7,7 @@
  *   3. Deploy > New deployment > Web app. Execute as: Me. Who has access: Anyone.
  *   4. Put the web app URL in FEEDBACK_WEBHOOK_URL and the same secret in FEEDBACK_SECRET.
  *
+ * It also answers {"action": "list"} with every row, which the app's /admin page uses.
  * Rows go to the "responses" tab (or the first tab); the header row is created from the first submission and new
  * columns are appended if the app starts sending more fields.
  */
@@ -22,6 +23,7 @@ function doPost(e) {
   }
   var secret = PropertiesService.getScriptProperties().getProperty("SECRET");
   if (!secret || body.secret !== secret) return out({ ok: false, error: "forbidden" });
+  if (body.action === "list") return out({ ok: true, rows: listRows() });
   var row = body.row || {};
 
   var lock = LockService.getScriptLock();
@@ -43,4 +45,20 @@ function doPost(e) {
     lock.releaseLock();
   }
   return out({ ok: true });
+}
+
+/** Every response row as an object keyed by the header, for the app's /admin page and CSV export. */
+function listRows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("responses") || ss.getSheets()[0];
+  if (sheet.getLastRow() < 2) return [];
+  var values = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  var header = values[0];
+  return values.slice(1).map(function (r) {
+    var o = {};
+    header.forEach(function (k, i) {
+      o[k] = r[i] instanceof Date ? r[i].toISOString() : r[i];
+    });
+    return o;
+  });
 }

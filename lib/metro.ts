@@ -128,7 +128,7 @@ export const METRO_OPTION_ID = 100;
  * at both ends or the metro would not beat walking.
  */
 export async function planMetro(
-  ds: Dataset, from: LngLat, to: LngLat, depart: Date, fastestWalkS: number,
+  ds: Dataset, from: LngLat, to: LngLat, depart: Date, fastestWalkS: number, teen = false,
 ): Promise<MetroOption | null> {
   const g = buildGraph(ds);
   if (flatDist(from[0], from[1], to[0], to[1]) < 1500) return null;
@@ -216,8 +216,8 @@ export async function planMetro(
   const boardAt = new Date(depart.getTime() + leg1.duration * 1000);
   const alightAt = new Date(boardAt.getTime() + rideS * 1000);
   const arrive = new Date(alightAt.getTime() + leg2.duration * 1000);
-  const s1 = scoreRoute(ds, leg1, "walk", depart, METRO_OPTION_ID + 1);
-  const s2 = scoreRoute(ds, leg2, "walk", alightAt, METRO_OPTION_ID + 2);
+  const s1 = scoreRoute(ds, leg1, "walk", depart, METRO_OPTION_ID + 1, teen);
+  const s2 = scoreRoute(ds, leg2, "walk", alightAt, METRO_OPTION_ID + 2, teen);
   const walked = leg1.distance + leg2.distance;
   const score =
     s1.score === null || s2.score === null

@@ -69,6 +69,54 @@ export const PARAMS: Record<Mode, ModeParams> = {
   },
 };
 
+/**
+ * Teen mode: same measurements, stricter priorities. Open places and the absence of empty
+ * stretches count for more, a quiet stretch "maxes out" sooner (300 m on foot), and main roads
+ * matter more than CCTV or transit. Used when a parent or teen turns on Teen mode.
+ */
+const TEEN: Record<Mode, Partial<ModeParams>> = {
+  walk: {
+    gapCap: 300, minReportedGap: 150,
+    weights: { activity: 0.3, gaps: 0.27, light: 0.15, roads: 0.18, help: 0.06, cameras: 0.02, transit: 0.02 },
+  },
+  drive: {
+    gapCap: 2500, minReportedGap: 600,
+    weights: { activity: 0.2, gaps: 0.22, light: 0.15, roads: 0.33, help: 0.08, cameras: 0.02, transit: 0 },
+  },
+};
+
+export function paramsFor(mode: Mode, teen: boolean): ModeParams {
+  return teen ? { ...PARAMS[mode], ...TEEN[mode] } : PARAMS[mode];
+}
+
+/**
+ * The emergency list is stricter than the "help nearby" score: OSM tags prepaid-auto booths and
+ * agency offices as police, and Overture files clinics and wellness centres under "hospital".
+ * Those are not where you run at night, so they are left out of the list (but still count as
+ * "help nearby" in the score, which only asks whether somewhere staffed is close).
+ */
+const NOT_EMERGENCY: Record<"hospital" | "police", RegExp> = {
+  police: /prepaid|investigation|agency|\bcbi\b|\bnia\b|intelligence|vigilance|headquarter|\bhq\b|office of|commissioner|academy|training|lines|barracks|record|licen[cs]e|passport|verification/i,
+  hospital: /clinic|ayur|homoeo|homeo|dental|dent\b|eye|optic|vision|sight|diabet|thyroid|physio|diagnos|patholog|\blab\b|labs|imaging|scan|x-?ray|skin|derma|hair|cosmetic|ivf|fertility|wellness|spa\b|yoga|naturo|unani|vet|pet|psychiatr|rehab|de-?addiction|pharma|chemist|medical store|dispensary|consult/i,
+};
+
+const POLICE_NAME = /police|thana|chowki|chauki|kotwali|pink booth|\bpcr\b|outpost|पुलिस|थाना|चौकी|कोतवाली/i;
+const SHOPLIKE = /jewel|silver|gold|store|mart\b|shop|boutique|salon|restaurant|cafe|bank|\batm\b|pvt|ltd|enterprises|traders|showroom/i;
+
+/** A hospital or police station near the route, with where along the trip it is. */
+export interface HelpPoint {
+  kind: "hospital" | "police";
+  name: string;
+  phone: string | null;
+  lon: number;
+  lat: number;
+  open: boolean;
+  /** Straight-line distance from the closest point of the route, m. */
+  off: number;
+  /** Distance along the route of that closest point, m. */
+  at: number;
+}
+
 export interface PlaceOut {
   lon: number;
   lat: number;
@@ -115,10 +163,15 @@ export interface ScoredRoute {
     helpWithinReach: number;
     helpPoints: number;
     coverage: number;
+    lamps: number;
   };
   places: PlaceOut[];
   cameras: LngLat[];
   help: PlaceOut[];
+  /** Nearest hospitals and police stations along the trip (closest few, ordered along the route). */
+  emergency: HelpPoint[];
+  /** Major bus routes that run along at least 600 m (or 25%) of this route. */
+  buses: { ref: string; name: string; along: number }[];
   gaps: Gap[];
 }
 
@@ -169,9 +222,9 @@ function camerasMappedNearby(ds: Dataset, samples: { lon: number; lat: number }[
 }
 
 export function scoreRoute(
-  ds: Dataset, cand: Candidate, mode: Mode, depart: Date, id: number,
+  ds: Dataset, cand: Candidate, mode: Mode, depart: Date, id: number, teen = false,
 ): ScoredRoute {
-  const P = PARAMS[mode];
+  const P = paramsFor(mode, teen);
   const { pois, poiGrid, light, meta } = ds;
   const [W, S, E, N] = meta.bbox;
   const samples = resample(cand.coords, P.step);
@@ -182,6 +235,9 @@ export function scoreRoute(
   const cameraIds = new Set<number>();
   const transitIds = new Set<number>();
   const helpIds = new Map<number, OpenState>();
+  const lampIds = new Set<number>();
+  const nearestHelp = new Map<number, { off: number; at: number; st: OpenState }>();
+  const busAlong = new Map<number, number>(); // bus route index -> samples it runs along
 
   let inside = 0;
   let watchedLen = 0, lightSum = 0, roadSum = 0, helpOk = 0;
@@ -207,7 +263,10 @@ export function scoreRoute(
         return;
       }
       if (kind === "lamp") {
-        if (d <= P.lampRadius) lamp = true;
+        if (d <= P.lampRadius) {
+          lamp = true;
+          lampIds.add(pid);
+        }
         return;
       }
       if (kind === "bus" || kind === "metro") {
@@ -227,7 +286,7 @@ export function scoreRoute(
 
     // Reachable help: any open hospital or police station within helpRadius.
     let help = false;
-    poiGrid.near(s.lon, s.lat, P.helpRadius, (pid) => {
+    poiGrid.near(s.lon, s.lat, P.helpRadius, (pid, d) => {
       const kind = pois.kinds[pois.kind[pid]];
       if (!HELP_KINDS.has(kind)) return;
       const st = openAt(pois.hours[pid], pois.defaultHours[kind], when, memo);
@@ -235,8 +294,17 @@ export function scoreRoute(
         help = true;
         if (!helpIds.has(pid)) helpIds.set(pid, st);
       }
+      const prev = nearestHelp.get(pid);
+      if (!prev || d < prev.off) nearestHelp.set(pid, { off: d, at: s.at, st });
     });
     if (help) helpOk++;
+
+    // Bus routes running along this stretch (checked every ~50 m to keep it cheap).
+    if (Math.round(s.at / P.step) % Math.max(1, Math.round(50 / P.step)) === 0) {
+      const seen = new Set<number>();
+      for (const w of ds.buses.waysNear(s.lon, s.lat, 25)) for (const r of ds.buses.routesOfWay[w]) seen.add(r);
+      for (const r of seen) busAlong.set(r, (busAlong.get(r) ?? 0) + 1);
+    }
 
     // Road class and tagged lighting.
     const snap = snapRoad(ds, s.lon, s.lat, s.axis);
@@ -335,6 +403,50 @@ export function scoreRoute(
     if (p.hours === "assumed") assumed++;
   }
 
+  // Emergency list: the closest few hospitals and police stations, ordered along the trip.
+  const emergency: HelpPoint[] = [...nearestHelp]
+    .filter(([pid]) => {
+      const kind = pois.kinds[pois.kind[pid]] as "hospital" | "police";
+      const name = pois.names[pois.name[pid]] ?? "";
+      if (SHOPLIKE.test(name) || NOT_EMERGENCY[kind].test(name)) return false;
+      // Police must look like a police post by name (or be unnamed): Overture misfiles some shops.
+      return kind !== "police" || !name || POLICE_NAME.test(name);
+    })
+    .sort((a, b) => a[1].off - b[1].off)
+    // OSM and Overture sometimes list the same station under two names: keep one per 150 m,
+    // preferring the entry that has a phone number.
+    .sort((a, b) => Number(Boolean(pois.phone?.[b[0]])) - Number(Boolean(pois.phone?.[a[0]])))
+    .filter(([pid], i, arr) => !arr.slice(0, i).some(([q]) =>
+      pois.kind[q] === pois.kind[pid] &&
+      Math.hypot((pois.lon[q] - pois.lon[pid]) * M_PER_DEG_LON, (pois.lat[q] - pois.lat[pid]) * M_PER_DEG_LAT) < 150))
+    .sort((a, b) => a[1].off - b[1].off)
+    .filter(([pid], i, arr) => {
+      const kind = pois.kinds[pois.kind[pid]];
+      // up to 3 of each kind
+      return arr.slice(0, i).filter(([q]) => pois.kinds[pois.kind[q]] === kind).length < 3;
+    })
+    .map(([pid, v]) => ({
+      kind: pois.kinds[pois.kind[pid]] as HelpPoint["kind"],
+      name: pois.names[pois.name[pid]] || (pois.kinds[pois.kind[pid]] === "police" ? "Police station" : "Hospital"),
+      // "+91 0xx…" (country code plus the domestic trunk 0) does not dial; drop the 0.
+      phone: pois.phone?.[pid]?.replace(/^\+910/, "+91") || null,
+      lon: pois.lon[pid], lat: pois.lat[pid], open: v.st.open,
+      off: Math.round(v.off), at: Math.round(v.at),
+    }))
+    .sort((a, b) => a.at - b.at);
+
+  const busStep = Math.max(1, Math.round(50 / P.step)) * P.step;
+  const buses = [...busAlong]
+    .map(([ri, k]) => ({ r: ds.buses.routes[ri], along: k * busStep }))
+    .filter(({ along }) => along >= Math.min(600, total * 0.25))
+    .sort((a, b) => b.along - a.along);
+  const busOut: ScoredRoute["buses"] = [];
+  for (const { r, along } of buses) {
+    if (!r.ref || busOut.some((b) => b.ref === r.ref)) continue; // one entry per route number (both directions)
+    busOut.push({ ref: r.ref, name: r.name, along: Math.round(along) });
+    if (busOut.length === 8) break;
+  }
+
   // Only ship help points reasonably close to the route; the rest would clutter the map.
   const help = [...helpIds]
     .map(([pid, st]) => toPlace(pid, st))
@@ -372,10 +484,13 @@ export function scoreRoute(
       helpWithinReach: Math.round((helpOk / n) * 100) / 100,
       helpPoints: helpIds.size,
       coverage: Math.round(coverage * 100) / 100,
+      lamps: lampIds.size,
     },
     places: places.slice(0, 600),
     cameras: [...cameraIds].map((pid) => [pois.lon[pid], pois.lat[pid]] as LngLat),
     help,
+    emergency,
+    buses: busOut,
     gaps: gaps.sort((a, b) => b.length - a.length).slice(0, 5),
   };
 }

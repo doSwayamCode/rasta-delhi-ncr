@@ -7,7 +7,7 @@ import { THEME_KEY as KEY } from "./theme-boot";
 export type ThemeMode = "auto" | "light" | "dark";
 export type Theme = "light" | "dark";
 
-const EVENT = "rasta-theme";
+const EVENT = "ghartak-theme";
 
 function readMode(): ThemeMode {
   try {

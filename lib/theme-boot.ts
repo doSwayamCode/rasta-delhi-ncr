@@ -1,4 +1,4 @@
-export const THEME_KEY = "rasta-theme";
+export const THEME_KEY = "ghartak-theme";
 
 /**
  * Runs in <head> before first paint so the page never flashes the wrong theme.

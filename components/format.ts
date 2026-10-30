@@ -74,6 +74,6 @@ export function summary(r: ScoredRoute): string[] {
         `path (often a river, rail line or expressway without a crossing)`,
     );
   }
-  if (s.coverage < 1) out.push(`${Math.round((1 - s.coverage) * 100)}% of this route is outside Rasta's data area and is not scored`);
+  if (s.coverage < 1) out.push(`${Math.round((1 - s.coverage) * 100)}% of this route is outside Ghar Tak's data area and is not scored`);
   return out;
 }

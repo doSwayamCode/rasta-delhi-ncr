@@ -22,7 +22,7 @@ const PROFILES: Record<Mode, string> = {
   walk: process.env.OSRM_FOOT_URL ?? "https://routing.openstreetmap.de/routed-foot/route/v1/foot",
 };
 
-const UA = process.env.ROUTER_USER_AGENT ?? "rasta/0.1 (night-safety route comparison; NCR)";
+const UA = process.env.ROUTER_USER_AGENT ?? "ghartak/0.1 (night-safety route comparison; NCR)";
 
 interface OsrmRoute {
   distance: number;

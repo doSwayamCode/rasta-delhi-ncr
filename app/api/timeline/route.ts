@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     const open: number[] = [];
     const longestGap: number[] = [];
     for (const t of slots) {
-      const r = scoreRoute(ds, c, trip.mode, t, id);
+      const r = scoreRoute(ds, c, trip.mode, t, id, trip.teen);
       scores.push(r.score);
       open.push(r.stats.openPlaces);
       longestGap.push(r.stats.longestGap);
