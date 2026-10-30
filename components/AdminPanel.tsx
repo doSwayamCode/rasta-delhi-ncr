@@ -8,7 +8,7 @@ type State =
   | { kind: "loading" }
   | { kind: "login"; error?: string }
   | { kind: "error"; message: string }
-  | { kind: "ready"; rows: Row[]; source: string; at: Date };
+  | { kind: "ready"; rows: Row[]; source: string; at: Date; sheetId: string | null };
 
 const COLUMNS: [string, string][] = [
   ["submitted_at", "Submitted (IST)"], ["mode", "Mode"], ["depart_ist", "Departure (IST)"],
@@ -89,7 +89,7 @@ export default function AdminPanel() {
       return setState({ kind: "login", error: res.status === 429 ? body.error : undefined });
     }
     if (!res.ok) return setState({ kind: "error", message: body.error ?? `Failed (${res.status})` });
-    setState({ kind: "ready", rows: body.rows, source: body.source, at: new Date() });
+    setState({ kind: "ready", rows: body.rows, source: body.source, at: new Date(), sheetId: body.sheetId ?? null });
   }, []);
 
   useEffect(() => {
@@ -153,7 +153,7 @@ export default function AdminPanel() {
         <h1>Ghar Tak · Feedback</h1>
         {state.kind === "ready" && (
           <div className="admin-actions">
-            <button type="button" className="btn primary" onClick={downloadCsv}>Download CSV</button>
+            {!state.sheetId && <button type="button" className="btn primary" onClick={downloadCsv}>Download CSV</button>}
             <button type="button" className="btn" onClick={() => load()}>Refresh</button>
             <button type="button" className="link" onClick={logout}>Sign out</button>
           </div>
@@ -175,7 +175,34 @@ export default function AdminPanel() {
         </form>
       )}
 
-      {state.kind === "ready" && (
+      {state.kind === "ready" && state.sheetId && (
+        <section className="admin-sheet">
+          <div className="admin-sheet-head">
+            <h2>Google Sheet</h2>
+            <div className="admin-actions">
+              <a className="btn primary" href={`https://docs.google.com/spreadsheets/d/${state.sheetId}/edit`} target="_blank" rel="noopener noreferrer">
+                Open in Google Sheets
+              </a>
+              <a className="btn" href={`https://docs.google.com/spreadsheets/d/${state.sheetId}/export?format=csv`}>
+                Download sheet as CSV
+              </a>
+            </div>
+          </div>
+          <iframe
+            title="Ghar Tak feedback sheet"
+            src={`https://docs.google.com/spreadsheets/d/${state.sheetId}/edit?rm=minimal`}
+            className="admin-sheet-frame"
+          />
+          <p className="note">
+            Every answer is added here as a row, including the route that was selected. If the sheet asks you to sign
+            in, use the Google account it is shared with, or use Open in Google Sheets (some browsers block signed-in
+            embeds).
+          </p>
+        </section>
+      )}
+
+      {/* With the sheet connected, the sheet is the record; a local copy is only shown if it is complete. */}
+      {state.kind === "ready" && (!state.sheetId || state.source === "sheet" || state.source === "redis") && (
         <>
           <p className="muted">
             {stats.n} response{stats.n === 1 ? "" : "s"} · source: {SOURCE_LABEL[state.source] ?? state.source} ·

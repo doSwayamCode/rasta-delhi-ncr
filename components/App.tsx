@@ -487,6 +487,7 @@ export default function App() {
                 routes={routes}
                 metro={metro}
                 teen={teen}
+                selectedId={selected}
               />
               <p className="disclaimer">
                 Ghar Tak compares routes using public data; it cannot see what is happening on a street tonight. Use it

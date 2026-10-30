@@ -17,6 +17,8 @@ interface Props {
   routes: ScoredRoute[];
   metro: MetroOption | null;
   teen: boolean;
+  /** The route selected on screen right now (route id, or the walk + metro option's id). */
+  selectedId: number;
 }
 
 let enabled: Promise<boolean> | null = null;
@@ -28,7 +30,7 @@ const isEnabled = () =>
  * app/api/feedback/route.ts) and are used to check the score's weights against what people
  * actually choose and how streets feel to people who know them.
  */
-export default function Feedback({ tripKey, mode, depart, from, to, routes, metro, teen }: Props) {
+export default function Feedback({ tripKey, mode, depart, from, to, routes, metro, teen, selectedId }: Props) {
   const [on, setOn] = useState(false);
   const [chosen, setChosen] = useState<string | null>(null);
   const [priority, setPriority] = useState<string | null>(null);
@@ -71,6 +73,24 @@ export default function Feedback({ tripKey, mode, depart, from, to, routes, metr
     { id: "none", label: "None of these" },
   ];
 
+  /** What was on screen: the selected route's numbers and shape (the server trims the ends). */
+  const selectedPayload = () => {
+    if (metro && selectedId === metro.id) {
+      return {
+        id: "metro", distance: metro.walkDistance, duration: metro.duration, score: metro.score,
+        lines: metro.ride.segments.map((s) => s.line),
+        coords: [...metro.legs[0].coords, ...metro.ride.segments.flatMap((s) => s.coords), ...metro.legs[1].coords],
+      };
+    }
+    const i = routes.findIndex((r) => r.id === selectedId);
+    const r = routes[i];
+    if (!r) return null;
+    return {
+      id: `r${i}`, via: r.via, distance: r.distance, duration: r.duration, score: r.score,
+      components: r.components, stats: r.stats, buses: r.buses.map((b) => b.ref), coords: r.coords,
+    };
+  };
+
   const submit = async () => {
     setState("sending");
     setError(null);
@@ -83,6 +103,7 @@ export default function Feedback({ tripKey, mode, depart, from, to, routes, metr
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           mode, depart, from, to, chosen, priority, feel, teen,
+          selected: selectedPayload(),
           routes: routes.map(summary),
           metro: metro ? { score: metro.score, duration: metro.duration } : null,
         }),

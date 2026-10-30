@@ -1550,3 +1550,29 @@ dialog.sos-sheet::backdrop {
 .helplines .helplines-list {
   margin-top: 6px;
 }
+
+.admin-sheet {
+  margin-top: 16px;
+}
+
+.admin-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.admin-sheet-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.admin-sheet-frame {
+  width: 100%;
+  height: 70vh;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}

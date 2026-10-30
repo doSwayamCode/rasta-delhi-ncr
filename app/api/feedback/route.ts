@@ -1,6 +1,8 @@
 import { dataset } from "@/lib/data";
 import { CHOICES } from "@/lib/feedback";
 import { appendFeedback } from "@/lib/feedbackStore";
+import type { LngLat } from "@/lib/geo";
+import { anonymisedPath } from "@/lib/polyline";
 
 export const runtime = "nodejs";
 
@@ -14,6 +16,23 @@ export const runtime = "nodejs";
 type Choice<K extends keyof typeof CHOICES> = (typeof CHOICES)[K][number];
 
 const COMPONENTS = ["activity", "gaps", "light", "roads", "help", "cameras", "transit"] as const;
+
+/** The route the person had selected on screen when they answered (sent by the form). */
+interface SelectedRoute {
+  id: string;
+  via?: string;
+  distance?: number;
+  duration?: number;
+  score?: number | null;
+  components?: Partial<Record<(typeof COMPONENTS)[number], number | null>>;
+  stats?: Record<string, number | boolean>;
+  buses?: string[];
+  lines?: string[];
+  coords?: LngLat[];
+}
+
+const validPoint = (p: unknown): p is LngLat =>
+  Array.isArray(p) && p.length === 2 && p.every((v) => typeof v === "number" && Number.isFinite(v));
 
 interface RouteSummary {
   score: number | null;
@@ -39,6 +58,35 @@ const pick = <K extends keyof typeof CHOICES>(k: K, v: unknown): Choice<K> | nul
 
 export function GET() {
   return Response.json({ enabled: true });
+}
+
+/** Columns describing the route that was selected on screen, for improving the scoring later. */
+function selectedFields(raw: unknown): Record<string, string | number | boolean | null> {
+  const r = (raw && typeof raw === "object" ? raw : {}) as SelectedRoute;
+  const id = typeof r.id === "string" && /^(r[0-3]|metro)$/.test(r.id) ? r.id : null;
+  if (!id) return { selected_route: null };
+  const st = r.stats ?? {};
+  const coords = Array.isArray(r.coords) ? r.coords.slice(0, 5000).filter(validPoint) : [];
+  const text = (v: unknown, max = 200) => (typeof v === "string" ? v.slice(0, max) : null);
+  return {
+    selected_route: id,
+    selected_via: text(r.via),
+    selected_km: num(r.distance) !== null ? Math.round(num(r.distance)! / 100) / 10 : null,
+    selected_minutes: num(r.duration) !== null ? Math.round(num(r.duration)! / 60) : null,
+    selected_score: num(r.score),
+    ...Object.fromEntries(COMPONENTS.map((c) => [`selected_${c}`, num(r.components?.[c])])),
+    selected_open_places: num(st.openPlaces),
+    selected_closed_places: num(st.closedPlaces),
+    selected_longest_gap_m: num(st.longestGap),
+    selected_main_road_share: num(st.mainRoadShare),
+    selected_lamps: num(st.lamps),
+    selected_cameras: num(st.cameras),
+    selected_help_points: num(st.helpPoints),
+    selected_buses: Array.isArray(r.buses) ? r.buses.filter((x) => typeof x === "string").slice(0, 8).join(" ") : null,
+    selected_metro_lines: Array.isArray(r.lines) ? r.lines.filter((x) => typeof x === "string").slice(0, 5).join(" → ") : null,
+    // Encoded polyline with the first and last 400 m removed (never shows exact start or end).
+    selected_path: coords.length ? anonymisedPath(coords) : null,
+  };
 }
 
 export async function POST(req: Request) {
@@ -92,6 +140,8 @@ export async function POST(req: Request) {
     priority,
     area_feel: feel,
     ...Object.fromEntries(COMPONENTS.map((c) => [`chosen_${c}`, num(chosenRoute?.components?.[c])])),
+    all_routes: routes.map((r) => `${Math.round((num(r.duration) ?? 0) / 60)}min/${num(r.score) ?? "-"}`).join("; "),
+    ...selectedFields(b.selected),
   };
 
   try {

@@ -95,7 +95,7 @@ npm run data
 | `ADMIN_PASSWORD` | Optional. Changes the `/admin` password (the built-in one is stored only as a scrypt hash). |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis for feedback answers (set automatically by Vercel's Upstash integration; `UPSTASH_REDIS_REST_URL`/`_TOKEN` also work) |
 | `FEEDBACK_FILE` | Where answers are stored on a host with a persistent disk (default `.data/feedback.jsonl`) |
-| `FEEDBACK_WEBHOOK_URL`, `FEEDBACK_SECRET` | Optional Google Sheet copy via [`scripts/feedback/Code.gs`](scripts/feedback/Code.gs) |
+| `FEEDBACK_WEBHOOK_URL`, `FEEDBACK_SHEET_ID` | Override the Google Sheet set in `lib/sheet.ts` |
 | `OSRM_CAR_URL`, `OSRM_FOOT_URL` | Your own OSRM servers (recommended before launch) |
 
 ### Admin and feedback data
@@ -110,10 +110,18 @@ Where answers are saved depends on the host:
 | --- | --- |
 | **Vercel / Netlify** (read-only disk) | In Vercel: project → **Storage** → **Create Database** → **Upstash Redis** (free tier) → connect it to the project → redeploy. The connection variables are added for you. Until then, answers go to temporary storage and `/admin` shows a warning. |
 | **A VM, Railway, Render, or Fly with a volume** | Nothing: answers go to `FEEDBACK_FILE` (default `.data/feedback.jsonl`). |
-| **Optional Google Sheet copy** | Paste `scripts/feedback/Code.gs` into the sheet's Apps Script, add a `SECRET` script property, deploy it as a web app, and set `FEEDBACK_WEBHOOK_URL` and `FEEDBACK_SECRET`. |
+| **Google Sheet (recommended)** | Every answer becomes a row in your sheet, on any host. Open the sheet → Extensions → Apps Script → paste `scripts/feedback/Code.gs` → Deploy → Web app (execute as you, access Anyone) → copy the `/exec` URL. Put that URL and the sheet's ID in [`lib/sheet.ts`](lib/sheet.ts). `/admin` then shows the sheet itself. |
 
-What's stored: the answers, the routes' scores and times, the hour, and start and end rounded to about 1 km. No
-names, addresses or IP addresses.
+What's stored:
+- the answers
+- the scores and times of every route shown
+- the hour
+- start and end rounded to about 1 km
+- the route that was selected on screen: its main roads, distance, time, score breakdown, open places, longest
+  empty stretch, lamps, CCTV and bus routes
+- a coarse outline of that route, with every point within 400 m of the start or end removed
+
+No names, exact addresses or IP addresses.
 
 ## Licences
 
