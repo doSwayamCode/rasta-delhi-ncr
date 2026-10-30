@@ -1024,7 +1024,8 @@ dialog.contacts::backdrop {
   font-size: 12px;
 }
 
-.warn {
+.warn,
+.admin-warn {
   margin: 0 0 10px;
   padding: 8px 10px;
   border: 1px solid var(--warn-line);

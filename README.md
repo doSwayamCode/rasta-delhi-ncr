@@ -93,20 +93,24 @@ npm run data
 | Variable | Purpose |
 | --- | --- |
 | `ADMIN_PASSWORD` | Optional. Changes the `/admin` password (the built-in one is stored only as a scrypt hash). |
-| `FEEDBACK_FILE` | Where answers are stored (default `.data/feedback.jsonl`) |
-| `FEEDBACK_WEBHOOK_URL`, `FEEDBACK_SECRET` | Optional Google Sheet mirror via [`scripts/feedback/Code.gs`](scripts/feedback/Code.gs); required on serverless hosts |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis for feedback answers (set automatically by Vercel's Upstash integration; `UPSTASH_REDIS_REST_URL`/`_TOKEN` also work) |
+| `FEEDBACK_FILE` | Where answers are stored on a host with a persistent disk (default `.data/feedback.jsonl`) |
+| `FEEDBACK_WEBHOOK_URL`, `FEEDBACK_SECRET` | Optional Google Sheet copy via [`scripts/feedback/Code.gs`](scripts/feedback/Code.gs) |
 | `OSRM_CAR_URL`, `OSRM_FOOT_URL` | Your own OSRM servers (recommended before launch) |
 
 ### Admin and feedback data
 
 `/admin` asks for the admin password; nothing needs setting up. The repo stores only a salted scrypt hash of it, and
 wrong attempts are limited to 5 per 10 minutes. To change the password, set `ADMIN_PASSWORD` on your host. The page
-shows every answer, a summary, and **Download CSV**, which reads the latest data on each click. Answers are stored in `FEEDBACK_FILE` on the server, which needs a persistent disk (a VM,
-Railway, Render, or Fly with a volume).
+shows every answer, a summary, and **Download CSV**, which reads the latest data on each click.
 
-On serverless hosts such as Vercel the disk isn't persistent. There, set up the Google Sheet mirror: paste
-`scripts/feedback/Code.gs` into the sheet's Apps Script, add a `SECRET` script property, deploy it as a web app,
-and set `FEEDBACK_WEBHOOK_URL` and `FEEDBACK_SECRET`. `/admin` then reads from the sheet.
+Where answers are saved depends on the host:
+
+| Host | What to do |
+| --- | --- |
+| **Vercel / Netlify** (read-only disk) | In Vercel: project → **Storage** → **Create Database** → **Upstash Redis** (free tier) → connect it to the project → redeploy. The connection variables are added for you. Until then, answers go to temporary storage and `/admin` shows a warning. |
+| **A VM, Railway, Render, or Fly with a volume** | Nothing: answers go to `FEEDBACK_FILE` (default `.data/feedback.jsonl`). |
+| **Optional Google Sheet copy** | Paste `scripts/feedback/Code.gs` into the sheet's Apps Script, add a `SECRET` script property, deploy it as a web app, and set `FEEDBACK_WEBHOOK_URL` and `FEEDBACK_SECRET`. |
 
 What's stored: the answers, the routes' scores and times, the hour, and start and end rounded to about 1 km. No
 names, addresses or IP addresses.

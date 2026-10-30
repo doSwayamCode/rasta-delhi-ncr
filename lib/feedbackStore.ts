@@ -1,24 +1,41 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 /**
- * Where feedback answers live.
+ * Where feedback answers live, in order of preference:
  *
- * 1. Always: an append-only JSON-lines file on the server (FEEDBACK_FILE, default .data/feedback.jsonl).
- *    Works on any host with a persistent disk (a VM, Railway, Render, Fly with a volume).
- * 2. Optionally: a Google Sheet through the Apps Script web app (FEEDBACK_WEBHOOK_URL + FEEDBACK_SECRET).
- *    Use this on serverless hosts such as Vercel, whose filesystem is not persistent.
- *
- * The admin panel reads from the sheet when it is configured (it sees every instance's rows),
- * otherwise from the file.
+ * 1. Redis over Upstash's REST API: KV_REST_API_URL + KV_REST_API_TOKEN (set automatically when you
+ *    add Upstash Redis from Vercel's Storage tab) or UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN.
+ *    Works on serverless hosts and keeps every answer.
+ * 2. A Google Sheet through the Apps Script web app (FEEDBACK_WEBHOOK_URL + FEEDBACK_SECRET).
+ * 3. A JSON-lines file on the server (FEEDBACK_FILE, default .data/feedback.jsonl): fine on a VM or
+ *    any host with a persistent disk.
+ * 4. If that disk is read-only (Vercel, Netlify), the system temp folder, so the form never fails.
+ *    That copy is temporary and per-instance; /admin says so.
  */
 export type Row = Record<string, string | number | boolean | null>;
+export type Source = "redis" | "sheet" | "file" | "temporary";
 
-const FILE = process.env.FEEDBACK_FILE ?? path.join(process.cwd(), ".data", "feedback.jsonl");
+const REDIS_URL = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+const REDIS_KEY = "ghartak:feedback";
 const WEBHOOK = process.env.FEEDBACK_WEBHOOK_URL;
 const SECRET = process.env.FEEDBACK_SECRET ?? "";
+const FILE = process.env.FEEDBACK_FILE ?? path.join(process.cwd(), ".data", "feedback.jsonl");
+const TMP_FILE = path.join(os.tmpdir(), "ghartak-feedback.jsonl");
 
-export const sheetConfigured = () => Boolean(WEBHOOK);
+async function redis(command: (string | number)[]): Promise<unknown> {
+  const res = await fetch(REDIS_URL!, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify(command),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const body = (await res.json().catch(() => ({}))) as { result?: unknown; error?: string };
+  if (!res.ok || body.error) throw new Error(body.error ?? `redis ${res.status}`);
+  return body.result;
+}
 
 async function callSheet(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const res = await fetch(WEBHOOK!, {
@@ -39,39 +56,22 @@ async function callSheet(body: Record<string, unknown>): Promise<Record<string, 
   return parsed;
 }
 
-/** Saves a row; succeeds if at least one store accepted it. */
-export async function appendFeedback(row: Row): Promise<{ file: boolean; sheet: boolean | null }> {
-  let file = false;
+async function appendLine(file: string, row: Row): Promise<boolean> {
   try {
-    await fs.mkdir(path.dirname(FILE), { recursive: true });
-    await fs.appendFile(FILE, JSON.stringify(row) + "\n", "utf8");
-    file = true;
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.appendFile(file, JSON.stringify(row) + "\n", "utf8");
+    return true;
   } catch {
-    // read-only filesystem (serverless): rely on the sheet
+    return false;
   }
-  let sheet: boolean | null = null;
-  if (WEBHOOK) {
-    try {
-      await callSheet({ row });
-      sheet = true;
-    } catch {
-      sheet = false;
-    }
-  }
-  if (!file && !sheet) throw new Error("no feedback store accepted the answer");
-  return { file, sheet };
 }
 
-export async function readFeedback(): Promise<{ rows: Row[]; source: "sheet" | "file" }> {
-  if (WEBHOOK) {
-    const res = await callSheet({ action: "list" });
-    return { rows: (res.rows as Row[]) ?? [], source: "sheet" };
-  }
-  let text = "";
+async function readLines(file: string): Promise<Row[] | null> {
+  let text: string;
   try {
-    text = await fs.readFile(FILE, "utf8");
+    text = await fs.readFile(file, "utf8");
   } catch {
-    return { rows: [], source: "file" };
+    return null;
   }
   const rows: Row[] = [];
   for (const line of text.split("\n")) {
@@ -82,7 +82,46 @@ export async function readFeedback(): Promise<{ rows: Row[]; source: "sheet" | "
       // skip a torn line from a crash mid-write
     }
   }
-  return { rows, source: "file" };
+  return rows;
+}
+
+/** Saves a row to every configured store; succeeds if any of them accepted it. */
+export async function appendFeedback(row: Row): Promise<Source[]> {
+  const saved: Source[] = [];
+  if (REDIS_URL && REDIS_TOKEN) {
+    try {
+      await redis(["RPUSH", REDIS_KEY, JSON.stringify(row)]);
+      saved.push("redis");
+    } catch {
+      // fall through to the other stores
+    }
+  }
+  if (WEBHOOK) {
+    try {
+      await callSheet({ row });
+      saved.push("sheet");
+    } catch {
+      // fall through
+    }
+  }
+  if (await appendLine(FILE, row)) saved.push("file");
+  else if (!saved.length && (await appendLine(TMP_FILE, row))) saved.push("temporary");
+  if (!saved.length) throw new Error("no feedback store accepted the answer");
+  return saved;
+}
+
+export async function readFeedback(): Promise<{ rows: Row[]; source: Source }> {
+  if (REDIS_URL && REDIS_TOKEN) {
+    const list = (await redis(["LRANGE", REDIS_KEY, 0, -1])) as string[];
+    return { rows: list.map((s) => JSON.parse(s)), source: "redis" };
+  }
+  if (WEBHOOK) {
+    const res = await callSheet({ action: "list" });
+    return { rows: (res.rows as Row[]) ?? [], source: "sheet" };
+  }
+  const file = await readLines(FILE);
+  if (file) return { rows: file, source: "file" };
+  return { rows: (await readLines(TMP_FILE)) ?? [], source: "temporary" };
 }
 
 /** RFC 4180 CSV with a UTF-8 BOM so Excel shows Hindi place names correctly. */

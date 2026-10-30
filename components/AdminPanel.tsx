@@ -24,6 +24,10 @@ const ist = (iso: unknown) => {
     : new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(t);
 };
 
+const SOURCE_LABEL: Record<string, string> = {
+  redis: "Upstash Redis", sheet: "Google Sheet", file: "server file", temporary: "temporary storage",
+};
+
 const chosenLabel = (v: unknown) =>
   v === "metro" ? "Walk + metro" : v === "none" ? "None" : /^r\d$/.test(String(v)) ? `Route ${Number(String(v).slice(1)) + 1}` : String(v ?? "");
 
@@ -174,9 +178,17 @@ export default function AdminPanel() {
       {state.kind === "ready" && (
         <>
           <p className="muted">
-            {stats.n} response{stats.n === 1 ? "" : "s"} · source: {state.source === "sheet" ? "Google Sheet" : "server store"} ·
+            {stats.n} response{stats.n === 1 ? "" : "s"} · source: {SOURCE_LABEL[state.source] ?? state.source} ·
             updated {state.at.toLocaleTimeString("en-IN")}
           </p>
+          {state.source === "temporary" && (
+            <div className="warn admin-warn">
+              <b>Answers are only in temporary storage.</b> This host&apos;s disk is read-only (for example Vercel), so
+              answers can disappear when the server restarts. To keep every answer, connect a free Upstash Redis
+              database: in Vercel open your project → <b>Storage</b> → <b>Create Database</b> → <b>Upstash Redis</b> →
+              connect it to this project, then redeploy. Nothing else to change; new answers are saved there from then on.
+            </div>
+          )}
           <div className="admin-tiles">
             <div className="admin-tile"><b>{stats.n}</b><span>responses</span></div>
             <div className="admin-tile"><b>{stats.highest}%</b><span>picked the highest-scoring route</span></div>

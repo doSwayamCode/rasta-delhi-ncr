@@ -119,13 +119,17 @@ function viaPoints(from: LngLat, to: LngLat, mode: Mode, snap: (p: LngLat) => Ln
   const tx = to[0] * M_PER_DEG_LON, ty = to[1] * M_PER_DEG_LAT;
   const len = Math.hypot(tx - fx, ty - fy) || 1;
   const nx = -(ty - fy) / len, ny = (tx - fx) / len;
-  const off = Math.min(straight * 0.2, mode === "walk" ? 700 : 3000);
+  const cap = mode === "walk" ? 700 : 3000;
   const out: LngLat[] = [];
-  for (const side of [1, -1]) {
-    const x = fx + (tx - fx) * 0.5 + nx * off * side;
-    const y = fy + (ty - fy) * 0.5 + ny * off * side;
-    const p = snap([x / M_PER_DEG_LON, y / M_PER_DEG_LAT]);
-    if (p) out.push(p);
+  // Two distances on each side of the straight line: a near and a wider detour.
+  for (const share of [0.2, 0.38]) {
+    const off = Math.min(straight * share, cap * (share / 0.2));
+    for (const side of [1, -1]) {
+      const x = fx + (tx - fx) * 0.5 + nx * off * side;
+      const y = fy + (ty - fy) * 0.5 + ny * off * side;
+      const p = snap([x / M_PER_DEG_LON, y / M_PER_DEG_LAT]);
+      if (p && !out.some((q) => haversine(p, q) < 150)) out.push(p);
+    }
   }
   return out;
 }
@@ -145,7 +149,7 @@ export async function candidates(
   );
   const pool = [...primary];
   for (const d of detours) {
-    if (d.status === "fulfilled" && d.value[0]) pool.push(toCandidate(d.value[0], "via"));
+    if (d.status === "fulfilled" && d.value[0]) pool.push(removeSpurs(toCandidate(d.value[0], "via")));
   }
 
   const fastest = Math.min(...pool.map((c) => c.duration));
@@ -157,12 +161,50 @@ export async function candidates(
     // their loops: a car on a divided road often has to pass the start or the destination and
     // U-turn, and rejecting that left driving trips with no route at all.
     if (c.origin === "via" && (hasLoop(c.coords) || overshoots(c.coords, from, to))) continue;
-    // Different enough if either route has >20% of its length away from the other.
-    if (kept.some((k) => overlap(c.coords, k.coords) > 0.8 && overlap(k.coords, c.coords) > 0.8)) continue;
+    // Different enough if either route has >15% of its length away from the other.
+    if (kept.some((k) => overlap(c.coords, k.coords) > 0.85 && overlap(k.coords, c.coords) > 0.85)) continue;
     kept.push(c);
     if (kept.length === max) break;
   }
   return kept;
+}
+
+/**
+ * Forcing a route through a via point often adds an out-and-back spur or a loop round a block (a
+ * car on a divided road has to U-turn to reach the point). When the route comes back within ~20 m
+ * of where it already was, within 2.5 km of travel, the part in between is cut out. What remains is
+ * still a continuous path on real roads; distance and time are reduced in proportion.
+ */
+function removeSpurs(c: Candidate): Candidate {
+  const cell = (p: LngLat) => `${Math.round(p[0] / 0.0002)},${Math.round(p[1] / 0.0002)}`;
+  const out: LngLat[] = [];
+  const at: number[] = []; // distance along the original route for each kept point
+  const seen = new Map<string, number>(); // cell -> index in out
+  let along = 0;
+  let cut = false;
+  for (let i = 0; i < c.coords.length; i++) {
+    const p = c.coords[i];
+    if (i > 0) along += haversine(c.coords[i - 1], p);
+    const k = cell(p);
+    const j = seen.get(k);
+    if (j !== undefined && j < out.length - 1 && along - at[j] > 60 && along - at[j] < 2500) {
+      for (let q = j + 1; q < out.length; q++) if (seen.get(cell(out[q])) === q) seen.delete(cell(out[q]));
+      out.length = j + 1;
+      at.length = j + 1;
+      cut = true;
+      continue;
+    }
+    out.push(p);
+    at.push(along);
+    if (!seen.has(k)) seen.set(k, out.length - 1);
+  }
+  if (!cut || out.length < 2) return c;
+  // Scale distance and time by the length actually kept (measured on the final path, so
+  // spurs removed in several steps are not counted twice).
+  let kept = 0;
+  for (let i = 1; i < out.length; i++) kept += haversine(out[i - 1], out[i]);
+  const ratio = Math.min(1, kept / Math.max(1, along));
+  return { ...c, coords: out, distance: c.distance * ratio, duration: c.duration * ratio };
 }
 
 /** Via-point detours sometimes go out and back along the same street; those are not real options. */
