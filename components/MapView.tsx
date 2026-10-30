@@ -1,0 +1,250 @@
+"use client";
+
+import maplibregl, { GeoJSONSource, LngLatLike, Map as MlMap, Marker } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { useEffect, useRef } from "react";
+import type { LngLat } from "@/lib/geo";
+import type { ScoredRoute } from "@/lib/score";
+import { KIND_COLOR } from "./format";
+
+const STYLE = "https://tiles.openfreemap.org/styles/dark";
+const NCR_CENTER: LngLatLike = [77.2, 28.5];
+
+interface Props {
+  bbox: [number, number, number, number] | null;
+  from: LngLat | null;
+  to: LngLat | null;
+  routes: ScoredRoute[];
+  selected: number;
+  onPick: (p: LngLat) => void;
+  onMove: (which: "from" | "to", p: LngLat) => void;
+  onSelect: (id: number) => void;
+}
+
+const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+
+export default function MapView({ bbox, from, to, routes, selected, onPick, onMove, onSelect }: Props) {
+  const el = useRef<HTMLDivElement>(null);
+  const map = useRef<MlMap | null>(null);
+  const ready = useRef(false);
+  const markers = useRef<{ from?: Marker; to?: Marker }>({});
+  const handlers = useRef({ onPick, onMove, onSelect });
+  handlers.current = { onPick, onMove, onSelect };
+  const latest = useRef({ routes, selected });
+  latest.current = { routes, selected };
+
+  useEffect(() => {
+    if (!el.current || map.current) return;
+    const m = new maplibregl.Map({
+      container: el.current,
+      style: STYLE,
+      center: NCR_CENTER,
+      zoom: 10,
+      attributionControl: { compact: true },
+    });
+    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    m.addControl(
+      new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false }),
+      "top-right",
+    );
+    m.on("load", () => {
+      m.addSource("routes", { type: "geojson", data: empty });
+      m.addSource("gaps", { type: "geojson", data: empty });
+      m.addSource("places", { type: "geojson", data: empty });
+      m.addSource("coverage", { type: "geojson", data: empty });
+
+      m.addLayer({
+        id: "coverage", type: "line", source: "coverage",
+        paint: { "line-color": "#f5b942", "line-opacity": 0.35, "line-width": 1, "line-dasharray": [4, 4] },
+      });
+      m.addLayer({
+        id: "routes-alt", type: "line", source: "routes", filter: ["!=", ["get", "selected"], true],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#6b7480", "line-width": 5, "line-opacity": 0.75 },
+      });
+      m.addLayer({
+        id: "routes-casing", type: "line", source: "routes", filter: ["==", ["get", "selected"], true],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#0b0d10", "line-width": 9 },
+      });
+      m.addLayer({
+        id: "routes-sel", type: "line", source: "routes", filter: ["==", ["get", "selected"], true],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#e8eaed", "line-width": 5 },
+      });
+      m.addLayer({
+        id: "gaps", type: "line", source: "gaps",
+        layout: { "line-cap": "butt", "line-join": "round" },
+        paint: { "line-color": "#ff4d40", "line-width": 5, "line-dasharray": [1, 1] },
+      });
+      m.addLayer({
+        id: "places", type: "circle", source: "places", minzoom: 11,
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 6],
+          "circle-color": ["case", ["get", "open"], ["get", "color"], "#0e1116"],
+          "circle-stroke-color": ["get", "color"],
+          "circle-stroke-width": ["case", ["get", "open"], 0.5, 1.5],
+          "circle-opacity": ["case", ["get", "open"], 1, 0.8],
+        },
+      });
+
+      m.on("click", "routes-alt", (e) => {
+        const id = e.features?.[0]?.properties?.id;
+        if (id !== undefined) handlers.current.onSelect(Number(id));
+      });
+      m.on("mouseenter", "routes-alt", () => (m.getCanvas().style.cursor = "pointer"));
+      m.on("mouseleave", "routes-alt", () => (m.getCanvas().style.cursor = ""));
+      m.on("click", "places", (e) => {
+        const f = e.features?.[0];
+        if (!f) return;
+        const p = f.properties as Record<string, string | boolean>;
+        const status = p.open ? "Open" : "Closed";
+        const basis =
+          p.hours === "camera" ? "Mapped in OpenStreetMap (man_made=surveillance)"
+          : p.hours === "tagged" ? `OSM hours: ${p.oh}`
+          : "Hours not published; category default assumed";
+        const line = p.hours === "camera" ? "CCTV camera" : `${p.label} · ${status} when you pass`;
+        new maplibregl.Popup({ closeButton: false, offset: 8 })
+          .setLngLat((f.geometry as GeoJSON.Point).coordinates as [number, number])
+          .setDOMContent(popup(String(p.name || p.label), line, basis))
+          .addTo(m);
+      });
+      m.on("mouseenter", "places", () => (m.getCanvas().style.cursor = "pointer"));
+      m.on("mouseleave", "places", () => (m.getCanvas().style.cursor = ""));
+      m.on("click", (e) => {
+        const hits = m.queryRenderedFeatures(e.point, { layers: ["places", "routes-alt"] });
+        if (!hits.length) handlers.current.onPick([e.lngLat.lng, e.lngLat.lat]);
+      });
+
+      ready.current = true;
+      draw(m, latest.current.routes, latest.current.selected);
+    });
+    map.current = m;
+    return () => {
+      m.remove();
+      map.current = null;
+      ready.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !bbox) return;
+    const run = () => {
+      const [w, s, e, n] = bbox;
+      (m.getSource("coverage") as GeoJSONSource | undefined)?.setData({
+        type: "Feature", properties: {},
+        geometry: { type: "LineString", coordinates: [[w, s], [e, s], [e, n], [w, n], [w, s]] },
+      });
+    };
+    if (ready.current) run();
+    else m.once("load", run);
+  }, [bbox]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    for (const which of ["from", "to"] as const) {
+      const p = which === "from" ? from : to;
+      const existing = markers.current[which];
+      if (!p) {
+        existing?.remove();
+        markers.current[which] = undefined;
+        continue;
+      }
+      if (existing) {
+        existing.setLngLat(p);
+      } else {
+        const node = document.createElement("div");
+        node.className = `pin pin-${which}`;
+        node.textContent = which === "from" ? "A" : "B";
+        const mk = new maplibregl.Marker({ element: node, draggable: true }).setLngLat(p).addTo(m);
+        mk.on("dragend", () => {
+          const ll = mk.getLngLat();
+          handlers.current.onMove(which, [ll.lng, ll.lat]);
+        });
+        markers.current[which] = mk;
+      }
+    }
+    if (from && to && !routes.length) {
+      m.fitBounds(new maplibregl.LngLatBounds(from, from).extend(to), { padding: 80, maxZoom: 15, duration: 600 });
+    } else if (from && !to) {
+      m.easeTo({ center: from, zoom: Math.max(m.getZoom(), 13) });
+    }
+  }, [from, to, routes.length]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready.current) return;
+    draw(m, routes, selected);
+  }, [routes, selected]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !routes.length) return;
+    const b = new maplibregl.LngLatBounds();
+    for (const r of routes) for (const c of r.coords) b.extend(c);
+    m.fitBounds(b, { padding: { top: 60, bottom: 60, left: 60, right: 60 }, maxZoom: 16, duration: 700 });
+  }, [routes]);
+
+  return <div ref={el} className="map" />;
+}
+
+function popup(title: string, line: string, note: string): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "popup";
+  const t = document.createElement("strong");
+  t.textContent = title;
+  const l = document.createElement("div");
+  l.textContent = line;
+  const n = document.createElement("div");
+  n.className = "popup-note";
+  n.textContent = note;
+  root.append(t, l, n);
+  return root;
+}
+
+const KIND_LABEL: Record<string, string> = {
+  hospital: "Hospital", police: "Police", fuel: "Petrol pump", pharmacy: "Pharmacy", food: "Food",
+  grocery: "Grocery", shop: "Shop", mall: "Mall", hotel: "Hotel", atm: "ATM", metro: "Station",
+};
+
+function draw(m: MlMap, routes: ScoredRoute[], selected: number) {
+  const sel = routes.find((r) => r.id === selected);
+  // Draw the selected route last so it sits on top of the alternatives.
+  const ordered = [...routes].sort((a, b) => Number(a.id === selected) - Number(b.id === selected));
+  (m.getSource("routes") as GeoJSONSource).setData({
+    type: "FeatureCollection",
+    features: ordered.map((r) => ({
+      type: "Feature",
+      properties: { id: r.id, selected: r.id === selected },
+      geometry: { type: "LineString", coordinates: r.coords },
+    })),
+  });
+  (m.getSource("gaps") as GeoJSONSource).setData({
+    type: "FeatureCollection",
+    features: (sel?.gaps ?? []).map((g) => ({
+      type: "Feature", properties: { length: g.length },
+      geometry: { type: "LineString", coordinates: g.coords },
+    })),
+  });
+  const places = sel ? [...sel.places, ...sel.help.filter((h) => !sel.places.some((p) => p.lon === h.lon && p.lat === h.lat))] : [];
+  (m.getSource("places") as GeoJSONSource).setData({
+    type: "FeatureCollection",
+    features: [
+      ...places.map((p) => ({
+        type: "Feature" as const,
+        properties: {
+          name: p.name, label: KIND_LABEL[p.kind] ?? p.kind, open: p.open, hours: p.hours, oh: p.oh ?? "",
+          color: KIND_COLOR[p.kind] ?? "#9aa3ad",
+        },
+        geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
+      })),
+      ...(sel?.cameras ?? []).map((c) => ({
+        type: "Feature" as const,
+        properties: { name: "CCTV camera", label: "Camera", open: true, hours: "camera", oh: "", color: KIND_COLOR.camera },
+        geometry: { type: "Point" as const, coordinates: c },
+      })),
+    ],
+  });
+}
