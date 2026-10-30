@@ -7,10 +7,12 @@ import type { LngLat } from "@/lib/geo";
 import type { Mode } from "@/lib/routing";
 import type { MetroOption } from "@/lib/metro";
 import type { Component, ScoredRoute } from "@/lib/score";
-import { COMPONENT_LABEL, KIND_COLOR, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
+import { useTheme } from "@/lib/theme";
+import { COMPONENT_LABEL, KIND_COLORS, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
 import PlaceSearch, { Picked, reverseGeocode } from "./PlaceSearch";
 import Feedback from "./Feedback";
 import Share, { metroShareText, shareText } from "./Share";
+import ThemeToggle from "./ThemeToggle";
 import Timeline, { TimelineData } from "./Timeline";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="map" /> });
@@ -84,6 +86,7 @@ function fmtIst(iso: string): string {
 }
 
 export default function App() {
+  const { theme } = useTheme();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [from, setFrom] = useState<Picked | null>(null);
   const [to, setTo] = useState<Picked | null>(null);
@@ -242,7 +245,10 @@ export default function App() {
     <div className="app">
       <aside className="panel">
         <header className="brand">
-          <h1>Rasta</h1>
+          <div className="brand-top">
+            <h1>Rasta</h1>
+            <ThemeToggle />
+          </div>
           <p>
             Compare routes across Delhi NCR by how open, lit and busy they are at the hour you travel. Not
             just the fastest way: the one with people around.
@@ -454,6 +460,7 @@ export default function App() {
           to={to?.point ?? null}
           routes={routes}
           metro={metro}
+          theme={theme}
           selected={selected}
           onPick={pickOnMap}
           onMove={moveMarker}
@@ -463,7 +470,7 @@ export default function App() {
           <div className="legend" aria-label="Map legend">
             {LEGEND.map((l) => (
               <span key={l.kind}>
-                <i style={{ background: KIND_COLOR[l.kind] }} />
+                <i style={{ background: KIND_COLORS[theme][l.kind] }} />
                 {l.label}
               </span>
             ))}

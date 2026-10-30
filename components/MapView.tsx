@@ -6,9 +6,8 @@ import { useEffect, useRef } from "react";
 import type { LngLat } from "@/lib/geo";
 import type { MetroOption } from "@/lib/metro";
 import type { ScoredRoute } from "@/lib/score";
-import { KIND_COLOR } from "./format";
-
-const STYLE = "https://tiles.openfreemap.org/styles/dark";
+import type { Theme } from "@/lib/theme";
+import { KIND_COLORS } from "./format";
 const NCR_CENTER: LngLatLike = [77.2, 28.6];
 
 interface Props {
@@ -18,6 +17,7 @@ interface Props {
   routes: ScoredRoute[];
   metro: MetroOption | null;
   selected: number;
+  theme: Theme;
   onPick: (p: LngLat) => void;
   onMove: (which: "from" | "to", p: LngLat) => void;
   onSelect: (id: number) => void;
@@ -25,21 +25,26 @@ interface Props {
 
 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
-export default function MapView({ bbox, from, to, routes, metro, selected, onPick, onMove, onSelect }: Props) {
+export default function MapView({ bbox, from, to, routes, metro, selected, theme, onPick, onMove, onSelect }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MlMap | null>(null);
   const ready = useRef(false);
   const markers = useRef<{ from?: Marker; to?: Marker }>({});
   const handlers = useRef({ onPick, onMove, onSelect });
   handlers.current = { onPick, onMove, onSelect };
-  const latest = useRef({ routes, metro, selected });
-  latest.current = { routes, metro, selected };
+  const latest = useRef({ routes, metro, selected, theme, bbox });
+  latest.current = { routes, metro, selected, theme, bbox };
+  const styleTheme = useRef<Theme | null>(null);
 
   useEffect(() => {
     if (!el.current || map.current) return;
+    // The map only renders in the browser, where the boot script has already set the real theme.
+    const initial: Theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    styleTheme.current = initial;
+    latest.current.theme = initial;
     const m = new maplibregl.Map({
       container: el.current,
-      style: STYLE,
+      style: STYLES[initial],
       center: NCR_CENTER,
       zoom: 9.3,
       attributionControl: { compact: true },
@@ -50,73 +55,8 @@ export default function MapView({ bbox, from, to, routes, metro, selected, onPic
       "top-right",
     );
     m.on("load", () => {
-      m.addSource("routes", { type: "geojson", data: empty });
-      m.addSource("gaps", { type: "geojson", data: empty });
-      m.addSource("places", { type: "geojson", data: empty });
-      m.addSource("coverage", { type: "geojson", data: empty });
-      m.addSource("ride", { type: "geojson", data: empty });
-
-      m.addLayer({
-        id: "coverage", type: "line", source: "coverage",
-        paint: { "line-color": "#f5b942", "line-opacity": 0.35, "line-width": 1, "line-dasharray": [4, 4] },
-      });
-      m.addLayer({
-        id: "routes-alt", type: "line", source: "routes", filter: ["!=", ["get", "selected"], true],
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#6b7480", "line-width": 5, "line-opacity": 0.75 },
-      });
-      m.addLayer({
-        id: "routes-casing", type: "line", source: "routes", filter: ["==", ["get", "selected"], true],
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#0b0d10", "line-width": 9 },
-      });
-      m.addLayer({
-        id: "routes-sel", type: "line", source: "routes", filter: ["==", ["get", "selected"], true],
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#e8eaed", "line-width": 5 },
-      });
-      m.addLayer({
-        id: "ride", type: "line", source: "ride", filter: ["==", ["geometry-type"], "LineString"],
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": ["get", "colour"],
-          "line-width": ["case", ["get", "selected"], 5, 3],
-          "line-opacity": ["case", ["get", "selected"], 1, 0.4],
-        },
-      });
-      m.addLayer({
-        id: "ride-stations", type: "circle", source: "ride", filter: ["==", ["geometry-type"], "Point"],
-        paint: {
-          "circle-radius": 5, "circle-color": "#0e1116",
-          "circle-stroke-color": ["get", "colour"], "circle-stroke-width": 2.5,
-          "circle-opacity": ["case", ["get", "selected"], 1, 0.4],
-          "circle-stroke-opacity": ["case", ["get", "selected"], 1, 0.4],
-        },
-      });
-      m.addLayer({
-        id: "ride-labels", type: "symbol", source: "ride", minzoom: 11,
-        filter: ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "selected"], true]],
-        layout: {
-          "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": 12,
-          "text-offset": [0, 1.1], "text-anchor": "top",
-        },
-        paint: { "text-color": "#e8eaed", "text-halo-color": "#0e1116", "text-halo-width": 1.5 },
-      });
-      m.addLayer({
-        id: "gaps", type: "line", source: "gaps",
-        layout: { "line-cap": "butt", "line-join": "round" },
-        paint: { "line-color": "#ff4d40", "line-width": 5, "line-dasharray": [1, 1] },
-      });
-      m.addLayer({
-        id: "places", type: "circle", source: "places", minzoom: 11,
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 6],
-          "circle-color": ["case", ["get", "open"], ["get", "color"], "#0e1116"],
-          "circle-stroke-color": ["get", "color"],
-          "circle-stroke-width": ["case", ["get", "open"], 0.5, 1.5],
-          "circle-opacity": ["case", ["get", "open"], 1, 0.8],
-        },
-      });
+      addOverlays(m, latest.current.theme);
+      applyCoverage(m, latest.current.bbox);
 
       m.on("click", "ride", () => handlers.current.onSelect(100));
       m.on("click", "routes-alt", (e) => {
@@ -148,7 +88,7 @@ export default function MapView({ bbox, from, to, routes, metro, selected, onPic
       });
 
       ready.current = true;
-      draw(m, latest.current.routes, latest.current.metro, latest.current.selected);
+      draw(m, latest.current.routes, latest.current.metro, latest.current.selected, latest.current.theme);
     });
     map.current = m;
     return () => {
@@ -160,17 +100,26 @@ export default function MapView({ bbox, from, to, routes, metro, selected, onPic
 
   useEffect(() => {
     const m = map.current;
-    if (!m || !bbox) return;
-    const run = () => {
-      const [w, s, e, n] = bbox;
-      (m.getSource("coverage") as GeoJSONSource | undefined)?.setData({
-        type: "Feature", properties: {},
-        geometry: { type: "LineString", coordinates: [[w, s], [e, s], [e, n], [w, n], [w, s]] },
-      });
-    };
-    if (ready.current) run();
-    else m.once("load", run);
+    if (m && ready.current) applyCoverage(m, bbox);
   }, [bbox]);
+
+  // Theme change: swap the basemap, then put Rasta's layers back on top of it.
+  useEffect(() => {
+    const m = map.current;
+    // <html data-theme> is updated before React state, so it is the reliable value on first mount.
+    const actual: Theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    if (!m || styleTheme.current === actual) return;
+    styleTheme.current = actual;
+    ready.current = false;
+    m.setStyle(STYLES[actual]);
+    m.once("style.load", () => {
+      const l = latest.current;
+      addOverlays(m, l.theme);
+      applyCoverage(m, l.bbox);
+      draw(m, l.routes, l.metro, l.selected, l.theme);
+      ready.current = true;
+    });
+  }, [theme]);
 
   useEffect(() => {
     const m = map.current;
@@ -207,8 +156,8 @@ export default function MapView({ bbox, from, to, routes, metro, selected, onPic
   useEffect(() => {
     const m = map.current;
     if (!m || !ready.current) return;
-    draw(m, routes, metro, selected);
-  }, [routes, metro, selected]);
+    draw(m, routes, metro, selected, theme);
+  }, [routes, metro, selected, theme]);
 
   useEffect(() => {
     const m = map.current;
@@ -221,6 +170,99 @@ export default function MapView({ bbox, from, to, routes, metro, selected, onPic
   }, [routes, metro]);
 
   return <div ref={el} className="map" />;
+}
+
+/** Basemaps from OpenFreeMap: a dark one, and Positron, a quiet light one that keeps overlays readable. */
+const STYLES: Record<Theme, string> = {
+  dark: "https://tiles.openfreemap.org/styles/dark",
+  light: "https://tiles.openfreemap.org/styles/positron",
+};
+
+const OVERLAY: Record<Theme, Record<string, string>> = {
+  dark: { coverage: "#f5b942", alt: "#6b7480", casing: "#0b0d10", selected: "#e8eaed", hole: "#0e1116", label: "#e8eaed", gap: "#ff4d40" },
+  light: { coverage: "#a85b06", alt: "#a3abb6", casing: "#ffffff", selected: "#1f2a37", hole: "#ffffff", label: "#121821", gap: "#e0362b" },
+};
+
+/** Sources and layers Rasta draws on top of the basemap. setStyle() drops them, so this re-runs per style. */
+function addOverlays(m: MlMap, theme: Theme) {
+  if (m.getSource("routes")) return; // already on this style (initial load and style.load can both fire)
+  const c = OVERLAY[theme];
+    m.addSource("routes", { type: "geojson", data: empty });
+    m.addSource("gaps", { type: "geojson", data: empty });
+    m.addSource("places", { type: "geojson", data: empty });
+    m.addSource("coverage", { type: "geojson", data: empty });
+    m.addSource("ride", { type: "geojson", data: empty });
+
+    m.addLayer({
+      id: "coverage", type: "line", source: "coverage",
+      paint: { "line-color": c.coverage, "line-opacity": 0.5, "line-width": 1, "line-dasharray": [4, 4] },
+    });
+    m.addLayer({
+      id: "routes-alt", type: "line", source: "routes", filter: ["!=", ["get", "selected"], true],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": c.alt, "line-width": 5, "line-opacity": 0.8 },
+    });
+    m.addLayer({
+      id: "routes-casing", type: "line", source: "routes", filter: ["==", ["get", "selected"], true],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": c.casing, "line-width": 9 },
+    });
+    m.addLayer({
+      id: "routes-sel", type: "line", source: "routes", filter: ["==", ["get", "selected"], true],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": c.selected, "line-width": 5 },
+    });
+    m.addLayer({
+      id: "ride", type: "line", source: "ride", filter: ["==", ["geometry-type"], "LineString"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ["get", "colour"],
+        "line-width": ["case", ["get", "selected"], 5, 3],
+        "line-opacity": ["case", ["get", "selected"], 1, 0.4],
+      },
+    });
+    m.addLayer({
+      id: "ride-stations", type: "circle", source: "ride", filter: ["==", ["geometry-type"], "Point"],
+      paint: {
+        "circle-radius": 5, "circle-color": c.hole,
+        "circle-stroke-color": ["get", "colour"], "circle-stroke-width": 2.5,
+        "circle-opacity": ["case", ["get", "selected"], 1, 0.4],
+        "circle-stroke-opacity": ["case", ["get", "selected"], 1, 0.4],
+      },
+    });
+    m.addLayer({
+      id: "ride-labels", type: "symbol", source: "ride", minzoom: 11,
+      filter: ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "selected"], true]],
+      layout: {
+        "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": 12,
+        "text-offset": [0, 1.1], "text-anchor": "top",
+      },
+      paint: { "text-color": c.label, "text-halo-color": c.hole, "text-halo-width": 1.5 },
+    });
+    m.addLayer({
+      id: "gaps", type: "line", source: "gaps",
+      layout: { "line-cap": "butt", "line-join": "round" },
+      paint: { "line-color": c.gap, "line-width": 5, "line-dasharray": [1, 1] },
+    });
+    m.addLayer({
+      id: "places", type: "circle", source: "places", minzoom: 11,
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 6],
+        "circle-color": ["case", ["get", "open"], ["get", "color"], c.hole],
+        "circle-stroke-color": ["get", "color"],
+        "circle-stroke-width": ["case", ["get", "open"], 0.5, 1.5],
+        "circle-opacity": ["case", ["get", "open"], 1, 0.8],
+      },
+    });
+}
+
+function applyCoverage(m: MlMap, bbox: [number, number, number, number] | null) {
+  if (!bbox) return;
+  const [w, s, e, n] = bbox;
+  (m.getSource("coverage") as GeoJSONSource | undefined)?.setData({
+    type: "Feature", properties: {},
+    geometry: { type: "LineString", coordinates: [[w, s], [e, s], [e, n], [w, n], [w, s]] },
+  });
 }
 
 function popup(title: string, line: string, note: string): HTMLElement {
@@ -242,7 +284,8 @@ const KIND_LABEL: Record<string, string> = {
   grocery: "Grocery", shop: "Shop", mall: "Mall", hotel: "Hotel", atm: "ATM", metro: "Station",
 };
 
-function draw(m: MlMap, routes: ScoredRoute[], metro: MetroOption | null, selected: number) {
+function draw(m: MlMap, routes: ScoredRoute[], metro: MetroOption | null, selected: number, theme: Theme) {
+  const kindColor = KIND_COLORS[theme];
   const metroSel = metro !== null && selected === metro.id;
   // The metro option's walking legs are drawn like routes, all under the metro option's id.
   const lines = [...routes, ...(metro?.legs.map((l) => ({ ...l, id: metro.id })) ?? [])];
@@ -293,13 +336,13 @@ function draw(m: MlMap, routes: ScoredRoute[], metro: MetroOption | null, select
         type: "Feature" as const,
         properties: {
           name: p.name, label: KIND_LABEL[p.kind] ?? p.kind, open: p.open, hours: p.hours, oh: p.oh ?? "",
-          color: KIND_COLOR[p.kind] ?? "#9aa3ad",
+          color: kindColor[p.kind] ?? kindColor.atm,
         },
         geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
       })),
       ...focus.flatMap((sel) => sel.cameras).map((c) => ({
         type: "Feature" as const,
-        properties: { name: "CCTV camera", label: "Camera", open: true, hours: "camera", oh: "", color: KIND_COLOR.camera },
+        properties: { name: "CCTV camera", label: "Camera", open: true, hours: "camera", oh: "", color: kindColor.camera },
         geometry: { type: "Point" as const, coordinates: c },
       })),
     ],
