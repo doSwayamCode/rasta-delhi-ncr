@@ -54,6 +54,12 @@ function toCandidate(r: OsrmRoute, origin: Candidate["origin"]): Candidate {
   return { coords: r.geometry.coordinates, distance: r.distance, duration: r.duration, via, origin };
 }
 
+/** The router's single best route between two points, or null if there is none. */
+export async function singleRoute(mode: Mode, from: LngLat, to: LngLat): Promise<Candidate | null> {
+  const r = (await osrm(mode, [from, to], false))[0];
+  return r ? toCandidate(r, "osrm") : null;
+}
+
 /** Share of a's length lying within tolM of b. Used to drop near-duplicate candidates. */
 function overlap(a: LngLat[], b: LngLat[], tolM = 35): number {
   const sa = resample(a, 40);

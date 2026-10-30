@@ -5,10 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Meta } from "@/lib/data";
 import type { LngLat } from "@/lib/geo";
 import type { Mode } from "@/lib/routing";
+import type { MetroOption } from "@/lib/metro";
 import type { Component, ScoredRoute } from "@/lib/score";
 import { COMPONENT_LABEL, KIND_COLOR, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
 import PlaceSearch, { Picked, reverseGeocode } from "./PlaceSearch";
-import Share from "./Share";
+import Share, { metroShareText, shareText } from "./Share";
 import Timeline, { TimelineData } from "./Timeline";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="map" /> });
@@ -17,6 +18,7 @@ interface ApiResult {
   mode: Mode;
   depart: string;
   routes: ScoredRoute[];
+  metro: MetroOption | null;
 }
 
 /** Wall-clock presets in IST; each resolves to its next occurrence. */
@@ -162,7 +164,8 @@ export default function App() {
         const best = [...body.routes].sort((a, b) => (b.score ?? -1) - (a.score ?? -1))[0];
         const want = wantRoute.current;
         wantRoute.current = null;
-        setSelected(want !== null && body.routes.some((r) => r.id === want) ? want : (best?.id ?? 0));
+        const valid = want !== null && (body.routes.some((r) => r.id === want) || body.metro?.id === want);
+        setSelected(valid ? want : (best?.id ?? 0));
         setLoading(false);
       })
       .catch((e: Error) => {
@@ -231,7 +234,8 @@ export default function App() {
   const routes = result?.routes ?? [];
   const fastest = routes.length ? Math.min(...routes.map((r) => r.duration)) : 0;
   const bestScore = routes.length ? Math.max(...routes.map((r) => r.score ?? -1)) : 0;
-  const sel = routes.find((r) => r.id === selected);
+  const metro = result?.metro ?? null;
+  const sel = routes.find((r) => r.id === selected) ?? (metro && metro.id === selected ? metro : undefined);
 
   return (
     <div className="app">
@@ -357,12 +361,10 @@ export default function App() {
                       {isSel && (
                         <Breakdown r={r} mode={result.mode}>
                           <Share
-                            route={r}
-                            mode={result.mode}
-                            fromLabel={from.label}
-                            toLabel={to.label}
-                            depart={result.depart}
-                            url={tripUrl(from, to, result.mode, result.depart, r.id)}
+                            text={shareText({
+                              route: r, mode: result.mode, fromLabel: from.label, toLabel: to.label,
+                              depart: result.depart, url: tripUrl(from, to, result.mode, result.depart, r.id),
+                            })}
                           />
                           {timeline ? (
                             <Timeline data={timeline} routeId={r.id} depart={result.depart} onPick={pickTime} />
@@ -374,6 +376,46 @@ export default function App() {
                     </li>
                   );
                 })}
+                {metro && (
+                  <li>
+                    <button
+                      type="button" className={selected === metro.id ? "card sel" : "card"}
+                      aria-pressed={selected === metro.id} onClick={() => setSelected(metro.id)}
+                    >
+                      <div className="score" style={{ color: scoreColor(metro.score), borderColor: scoreColor(metro.score) }}>
+                        <span>{metro.score ?? "–"}</span>
+                        <small>walk parts</small>
+                      </div>
+                      <div className="card-main">
+                        <div className="card-top">
+                          <strong>~{fmtDuration(metro.duration)}</strong>
+                          <span className="muted">{fmtDistance(metro.walkDistance)} on foot</span>
+                        </div>
+                        <div className="lines">
+                          {metro.ride.segments.map((sg, i) => (
+                            <span key={i} className="line-chip">
+                              <i style={{ background: sg.colour }} />
+                              {sg.line}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="tags">
+                          <span className="tag">Walk + metro</span>
+                          {metro.duration < fastest && <span className="tag">Faster than walking</span>}
+                        </div>
+                      </div>
+                    </button>
+                    {selected === metro.id && (
+                      <MetroBreakdown
+                        m={metro}
+                        share={metroShareText({
+                          metro, fromLabel: from.label, toLabel: to.label, depart: result.depart,
+                          url: tripUrl(from, to, result.mode, result.depart, metro.id),
+                        })}
+                      />
+                    )}
+                  </li>
+                )}
               </ol>
               <p className="disclaimer">
                 Rasta compares routes using public data; it cannot see what is happening on a street tonight. Use it
@@ -401,6 +443,7 @@ export default function App() {
           from={from?.point ?? null}
           to={to?.point ?? null}
           routes={routes}
+          metro={metro}
           selected={selected}
           onPick={pickOnMap}
           onMove={moveMarker}
@@ -419,6 +462,57 @@ export default function App() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+const clock = (iso: string) =>
+  new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+
+function MetroBreakdown({ m, share }: { m: MetroOption; share: string }) {
+  const [leg1, leg2] = m.legs;
+  // Any part of the ride between 10:30 pm and 6 am IST: last/first trains matter.
+  const istH = (iso: string) => (new Date(iso).getTime() / 3_600_000 + 5.5) % 24;
+  const isLate = (h: number) => h >= 22.5 || h < 6;
+  const late = isLate(istH(m.board.at)) || isLate(istH(m.alight.at));
+  const operators = [...new Set(m.ride.segments.map((s) => s.operator).filter(Boolean))];
+  const a = m.assumptions;
+  return (
+    <div className="breakdown">
+      <Share text={share} />
+      {late && (
+        <div className="warn">
+          This ride runs late at night. Rasta has no train times, so check the last train from{" "}
+          <b>{m.board.station}</b>
+          {m.ride.segments.length > 1 && <> and the connections at {m.ride.segments.slice(1).map((s) => s.from).join(", ")}</>}{" "}
+          with {operators.join(" / ") || "the operator"} before you rely on this.
+        </div>
+      )}
+      <ol className="steps">
+        <li>
+          <b>Walk {fmtDistance(leg1.distance)}</b> to {m.board.station} station
+          <span className="muted"> · night score {leg1.score ?? "–"}</span>
+          <div className="muted">{summary(leg1).slice(0, 2).join(" · ")}</div>
+        </li>
+        {m.ride.segments.map((sg, i) => (
+          <li key={i}>
+            {i > 0 && <span className="muted">Change to </span>}
+            <span className="line-chip"><i style={{ background: sg.colour }} />{sg.line}</span> {sg.from} → {sg.to}
+            <span className="muted"> · {sg.stops} stop{sg.stops === 1 ? "" : "s"}</span>
+          </li>
+        ))}
+        <li>
+          <b>Walk {fmtDistance(leg2.distance)}</b> from {m.alight.station} station, around {clock(m.alight.at)}
+          <span className="muted"> · night score {leg2.score ?? "–"}</span>
+          <div className="muted">{summary(leg2).slice(0, 2).join(" · ")}</div>
+        </li>
+      </ol>
+      <p className="note">
+        Arrive around <b>{clock(m.alight.arrive)}</b> (estimate). Train times are not openly published, so the ride is
+        estimated at {a.speedKmh} km/h between stations ({a.speedSource[0] ?? "default"} in OpenStreetMap), plus{" "}
+        {a.waitMin} min waiting each time you board and {a.changeMin} min per change. The score covers only the walking
+        parts, each checked at the time you&apos;d be on it.
+      </p>
     </div>
   );
 }
@@ -496,6 +590,7 @@ function About({ meta }: { meta: Meta | null }) {
           Night light: NASA Black Marble VNP46A2/VJ146A2 via NASA GIBS, median of {meta?.lightNights.length ?? 30}{" "}
           satellite passes up to {meta?.lightNights[0]?.split(":")[1] ?? "…"}.
         </li>
+        <li>Metro and RRTS lines and stops: OpenStreetMap route relations. No train times; ride times are estimates.</li>
         <li>Routing: OSRM on FOSSGIS servers. Search: Photon by komoot. Map: OpenFreeMap.</li>
       </ul>
       <h2>Known limits</h2>

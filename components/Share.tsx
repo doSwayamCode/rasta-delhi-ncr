@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import type { Mode } from "@/lib/routing";
+import type { MetroOption } from "@/lib/metro";
 import type { ScoredRoute } from "@/lib/score";
 import { fmtDistance, fmtDuration } from "./format";
 
-interface Props {
+interface TripText {
   route: ScoredRoute;
   mode: Mode;
   fromLabel: string;
@@ -17,7 +18,7 @@ interface Props {
 const time = (ms: number) =>
   new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" }).format(new Date(ms));
 
-export function shareText({ route, mode, fromLabel, toLabel, depart, url }: Props): string {
+export function shareText({ route, mode, fromLabel, toLabel, depart, url }: TripText): string {
   const start = new Date(depart).getTime();
   const eta = start + route.duration * 1000;
   const how = mode === "walk" ? "walking" : "taking a cab";
@@ -29,9 +30,19 @@ export function shareText({ route, mode, fromLabel, toLabel, depart, url }: Prop
   );
 }
 
-export default function Share(props: Props) {
+export function metroShareText({ metro, fromLabel, toLabel, depart, url }: {
+  metro: MetroOption; fromLabel: string; toLabel: string; depart: string; url: string;
+}): string {
+  const rides = metro.ride.segments.map((s) => `${s.line} to ${s.to}`).join(", then ");
+  return (
+    `I'm going from ${fromLabel} to ${toLabel}: walking to ${metro.board.station} metro, ${rides}, then walking ` +
+    `${fmtDistance(metro.legs[1].distance)}. Leaving ${time(new Date(depart).getTime())}, should reach around ` +
+    `${time(new Date(metro.alight.arrive).getTime())}.\nMy route: ${url}`
+  );
+}
+
+export default function Share({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const text = shareText(props);
   const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   const copy = async () => {

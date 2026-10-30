@@ -214,7 +214,23 @@ export class Roads {
   }
 }
 
+export interface MetroLine {
+  osm: number;
+  name: string;
+  ref: string;
+  colour: string;
+  operator: string;
+  stops: { name: string; lat: number; lon: number }[];
+}
+
+export interface Metro {
+  lines: MetroLine[];
+  speedKmh: number | null;
+  speedSource: string[];
+}
+
 export interface Dataset {
+  metro: Metro;
   pois: Pois;
   poiGrid: PointGrid;
   roads: Roads;
@@ -232,7 +248,8 @@ export function dataset(): Dataset {
   const light: Light = JSON.parse(fs.readFileSync(path.join(dir, "light.json"), "utf8"));
   const poiGrid = new PointGrid(Float64Array.from(pois.lat), Float64Array.from(pois.lon), meta.bbox, 0.001);
   const roads = new Roads(zlib.gunzipSync(fs.readFileSync(path.join(dir, "roads.bin.gz"))), meta.bbox, meta.roadClasses);
-  cached = { pois, poiGrid, roads, light, meta };
+  const metro: Metro = JSON.parse(fs.readFileSync(path.join(dir, "metro.json"), "utf8"));
+  cached = { metro, pois, poiGrid, roads, light, meta };
   return cached;
 }
 

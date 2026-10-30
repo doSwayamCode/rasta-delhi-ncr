@@ -738,3 +738,48 @@ a {
   font-size: 13px;
   min-height: 2.9em;
 }
+
+/* Walk + metro ---------------------------------------------------------- */
+
+.lines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.line-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.line-chip i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.steps {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  font-size: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.steps .muted {
+  font-size: 12px;
+}
+
+.warn {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid #6b5420;
+  background: #2a2312;
+  border-radius: 8px;
+  font-size: 13px;
+}

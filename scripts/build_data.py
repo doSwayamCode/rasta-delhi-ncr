@@ -10,6 +10,7 @@ Outputs in data/ (the two big files are gzipped):
   pois.json.gz  places that keep a street "watched" after dark, cameras, street lamps, transit
   roads.bin.gz  every OSM road/footway in the box (class, lit tag, geometry) for snapping routes
   light.json    median night radiance grid (nW/cm^2/sr)
+  metro.json    metro / RRTS lines with their ordered stops, from OSM route relations
   meta.json     source versions, dates and counts, shown in the app
 
 Usage:
@@ -358,6 +359,83 @@ def build_light():
     }, used
 
 
+# --------------------------------------------------------------------------------------------
+# Metro network from OSM public-transport route relations (one relation per line direction).
+# OSM has no timetables, so ride times are estimated from distance; see METRO_SPEED below.
+# --------------------------------------------------------------------------------------------
+METRO_ROUTES = {"subway", "light_rail", "monorail"}
+
+
+class MetroRelations(osmium.SimpleHandler):
+    def __init__(self):
+        super().__init__()
+        self.rels: dict[int, dict] = {}
+
+    def relation(self, r):
+        t = r.tags
+        if t.get("type") != "route" or t.get("route") not in METRO_ROUTES or r.id in self.rels:
+            return
+        stops = [m.ref for m in r.members if m.type == "n" and m.role.startswith("stop")]
+        if len(stops) < 2:
+            return
+        self.rels[r.id] = {
+            "name": t.get("name", ""), "ref": t.get("ref", ""), "colour": t.get("colour", "#9aa3ad"),
+            "operator": t.get("operator", ""), "network": t.get("network", ""),
+            "duration": t.get("duration", ""), "stops": stops,
+        }
+
+
+class StopNodes(osmium.SimpleHandler):
+    def __init__(self, wanted: set[int]):
+        super().__init__()
+        self.wanted = wanted
+        self.nodes: dict[int, tuple] = {}
+
+    def node(self, n):
+        if n.id in self.wanted and n.id not in self.nodes:
+            name = n.tags.get("name:en") or n.tags.get("name") or ""
+            self.nodes[n.id] = (round(n.location.lat, 6), round(n.location.lon, 6), name)
+
+
+def parse_duration_min(v: str) -> float | None:
+    m = re.fullmatch(r"(\d+):(\d\d)(?::\d\d)?", v.strip())
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    return float(v) if re.fullmatch(r"\d+(\.\d+)?", v.strip()) else None
+
+
+def build_metro():
+    rh = MetroRelations()
+    for name in OSM_EXTRACTS:
+        rh.apply_file(str(CACHE / f"{name}-latest.osm.pbf"))
+    wanted = {n for r in rh.rels.values() for n in r["stops"]}
+    nh = StopNodes(wanted)
+    for name in OSM_EXTRACTS:
+        nh.apply_file(str(CACHE / f"{name}-latest.osm.pbf"), locations=False)
+
+    lines, timed = [], []
+    for rid, r in sorted(rh.rels.items()):
+        stops = [nh.nodes[n] for n in r["stops"] if n in nh.nodes]
+        # Keep only the part of each line inside the coverage box (drops Kanpur, Lucknow, Agra, Meerut).
+        inside_stops = [st for st in stops if inside(st[0], st[1])]
+        if len(inside_stops) < 2:
+            continue
+        length = sum(haversine(a[0], a[1], b[0], b[1]) for a, b in zip(stops, stops[1:]))
+        dur = parse_duration_min(r["duration"]) if r["duration"] else None
+        if dur and len(stops) == len(r["stops"]):
+            timed.append((r["name"], length, dur))
+        lines.append({
+            "osm": rid, "name": r["name"], "ref": r["ref"], "colour": r["colour"], "operator": r["operator"],
+            "stops": [{"name": st[2], "lat": st[0], "lon": st[1]} for st in inside_stops],
+        })
+    # Average speed between stops, straight-line, from every complete line with an OSM duration tag.
+    speed = sum(l for _, l, _ in timed) / sum(d for _, _, d in timed) * 60 / 1000 if timed else None
+    print(f"  metro: {len(lines)} line directions, {len(wanted)} stops; speed from {[t[0] for t in timed]}: "
+          f"{speed and round(speed, 1)} km/h")
+    return {"lines": lines, "speedKmh": round(speed, 1) if speed else None,
+            "speedSource": [f"{n}: {round(l / 1000, 1)} km in {d:.0f} min" for n, l, d in timed]}
+
+
 def write_roads(roads, path: Path):
     """Binary: u32 count, then per way: u8 class, u8 lit, u16 n, n x (i32 lat*1e5, i32 lon*1e5)."""
     with gzip.open(path, "wb", compresslevel=9) as f:
@@ -371,6 +449,9 @@ def write_roads(roads, path: Path):
 
 def main():
     OUT.mkdir(exist_ok=True)
+    if "--only-metro" in sys.argv:
+        (OUT / "metro.json").write_text(json.dumps(build_metro(), separators=(",", ":"), ensure_ascii=False))
+        return
     print("OpenStreetMap")
     osm_pois, roads, osm_dates = build_osm()
     print("Overture")
@@ -380,6 +461,10 @@ def main():
 
     print("Night lights")
     light, nights = build_light()
+
+    print("Metro")
+    metro = build_metro()
+    (OUT / "metro.json").write_text(json.dumps(metro, separators=(",", ":"), ensure_ascii=False))
 
     names, name_idx = [], {}
 

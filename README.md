@@ -26,6 +26,21 @@ Two more things on each route:
   and selected route. One tap sends a WhatsApp message with where you're going, when you left and when you
   should arrive, plus that link.
 
+On foot, Rasta also looks for a **walk + metro + walk** option across Delhi Metro, Noida's Aqua Line, Rapid
+Metro Gurgaon and the Delhi–Meerut RRTS, using the lines and ordered stops mapped in OpenStreetMap. It is shown
+when it beats walking, with each walking leg scored at the time you'd be on it.
+
+Train times are **not** included. DMRC's official timetable (GTFS) is only available from Delhi's Open Transit
+Data portal under terms that require registration and prohibit modifying or repurposing the data, so Rasta
+estimates the ride instead and says so in the app:
+
+- 32.6 km/h between stations (straight-line). This comes from the one complete OSM line with a `duration` tag:
+  the Red Line, 32.6 km in 60 min. It is applied to every line, which is conservative for the faster RRTS.
+- 8 min waiting each time you board (night headways are longer), plus 3 min and the walk between platforms for
+  each change. Stops of different lines within 350 m count as one interchange.
+- If any part of the ride falls between 10:30 pm and 6 am, the card tells you to check the last train with the
+  operator.
+
 Inspired by [this demo](https://x.com/achinamayya/status/2115794397489205740), rebuilt for Delhi NCR on open data only.
 
 ## Data
@@ -144,6 +159,7 @@ lib/data.ts             loads data, spatial grid index, radiance lookup
 lib/routing.ts          OSRM candidates, via-point detours, de-duplication
 lib/score.ts            the night score
 lib/hours.ts            opening_hours evaluation in IST
+lib/metro.ts            walk + metro planner over OSM metro lines (Dijkstra, estimated ride times)
 lib/trip.ts             request validation, 15-minute cache of router candidates
 app/api/routes          POST {from, to, mode, depart} → scored routes
 app/api/timeline        POST {from, to, mode, depart} → each route's score every 30 min, 6 pm–3 am IST

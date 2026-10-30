@@ -4,6 +4,7 @@ import maplibregl, { GeoJSONSource, LngLatLike, Map as MlMap, Marker } from "map
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef } from "react";
 import type { LngLat } from "@/lib/geo";
+import type { MetroOption } from "@/lib/metro";
 import type { ScoredRoute } from "@/lib/score";
 import { KIND_COLOR } from "./format";
 
@@ -15,6 +16,7 @@ interface Props {
   from: LngLat | null;
   to: LngLat | null;
   routes: ScoredRoute[];
+  metro: MetroOption | null;
   selected: number;
   onPick: (p: LngLat) => void;
   onMove: (which: "from" | "to", p: LngLat) => void;
@@ -23,15 +25,15 @@ interface Props {
 
 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
-export default function MapView({ bbox, from, to, routes, selected, onPick, onMove, onSelect }: Props) {
+export default function MapView({ bbox, from, to, routes, metro, selected, onPick, onMove, onSelect }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MlMap | null>(null);
   const ready = useRef(false);
   const markers = useRef<{ from?: Marker; to?: Marker }>({});
   const handlers = useRef({ onPick, onMove, onSelect });
   handlers.current = { onPick, onMove, onSelect };
-  const latest = useRef({ routes, selected });
-  latest.current = { routes, selected };
+  const latest = useRef({ routes, metro, selected });
+  latest.current = { routes, metro, selected };
 
   useEffect(() => {
     if (!el.current || map.current) return;
@@ -52,6 +54,7 @@ export default function MapView({ bbox, from, to, routes, selected, onPick, onMo
       m.addSource("gaps", { type: "geojson", data: empty });
       m.addSource("places", { type: "geojson", data: empty });
       m.addSource("coverage", { type: "geojson", data: empty });
+      m.addSource("ride", { type: "geojson", data: empty });
 
       m.addLayer({
         id: "coverage", type: "line", source: "coverage",
@@ -73,6 +76,33 @@ export default function MapView({ bbox, from, to, routes, selected, onPick, onMo
         paint: { "line-color": "#e8eaed", "line-width": 5 },
       });
       m.addLayer({
+        id: "ride", type: "line", source: "ride", filter: ["==", ["geometry-type"], "LineString"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": ["get", "colour"],
+          "line-width": ["case", ["get", "selected"], 5, 3],
+          "line-opacity": ["case", ["get", "selected"], 1, 0.4],
+        },
+      });
+      m.addLayer({
+        id: "ride-stations", type: "circle", source: "ride", filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-radius": 5, "circle-color": "#0e1116",
+          "circle-stroke-color": ["get", "colour"], "circle-stroke-width": 2.5,
+          "circle-opacity": ["case", ["get", "selected"], 1, 0.4],
+          "circle-stroke-opacity": ["case", ["get", "selected"], 1, 0.4],
+        },
+      });
+      m.addLayer({
+        id: "ride-labels", type: "symbol", source: "ride", minzoom: 11,
+        filter: ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "selected"], true]],
+        layout: {
+          "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": 12,
+          "text-offset": [0, 1.1], "text-anchor": "top",
+        },
+        paint: { "text-color": "#e8eaed", "text-halo-color": "#0e1116", "text-halo-width": 1.5 },
+      });
+      m.addLayer({
         id: "gaps", type: "line", source: "gaps",
         layout: { "line-cap": "butt", "line-join": "round" },
         paint: { "line-color": "#ff4d40", "line-width": 5, "line-dasharray": [1, 1] },
@@ -88,6 +118,7 @@ export default function MapView({ bbox, from, to, routes, selected, onPick, onMo
         },
       });
 
+      m.on("click", "ride", () => handlers.current.onSelect(100));
       m.on("click", "routes-alt", (e) => {
         const id = e.features?.[0]?.properties?.id;
         if (id !== undefined) handlers.current.onSelect(Number(id));
@@ -112,12 +143,12 @@ export default function MapView({ bbox, from, to, routes, selected, onPick, onMo
       m.on("mouseenter", "places", () => (m.getCanvas().style.cursor = "pointer"));
       m.on("mouseleave", "places", () => (m.getCanvas().style.cursor = ""));
       m.on("click", (e) => {
-        const hits = m.queryRenderedFeatures(e.point, { layers: ["places", "routes-alt"] });
+        const hits = m.queryRenderedFeatures(e.point, { layers: ["places", "routes-alt", "ride"] });
         if (!hits.length) handlers.current.onPick([e.lngLat.lng, e.lngLat.lat]);
       });
 
       ready.current = true;
-      draw(m, latest.current.routes, latest.current.selected);
+      draw(m, latest.current.routes, latest.current.metro, latest.current.selected);
     });
     map.current = m;
     return () => {
@@ -176,16 +207,18 @@ export default function MapView({ bbox, from, to, routes, selected, onPick, onMo
   useEffect(() => {
     const m = map.current;
     if (!m || !ready.current) return;
-    draw(m, routes, selected);
-  }, [routes, selected]);
+    draw(m, routes, metro, selected);
+  }, [routes, metro, selected]);
 
   useEffect(() => {
     const m = map.current;
     if (!m || !routes.length) return;
     const b = new maplibregl.LngLatBounds();
     for (const r of routes) for (const c of r.coords) b.extend(c);
+    for (const l of metro?.legs ?? []) for (const c of l.coords) b.extend(c);
+    for (const sg of metro?.ride.segments ?? []) for (const c of sg.coords) b.extend(c);
     m.fitBounds(b, { padding: { top: 60, bottom: 60, left: 60, right: 60 }, maxZoom: 16, duration: 700 });
-  }, [routes]);
+  }, [routes, metro]);
 
   return <div ref={el} className="map" />;
 }
@@ -209,10 +242,13 @@ const KIND_LABEL: Record<string, string> = {
   grocery: "Grocery", shop: "Shop", mall: "Mall", hotel: "Hotel", atm: "ATM", metro: "Station",
 };
 
-function draw(m: MlMap, routes: ScoredRoute[], selected: number) {
-  const sel = routes.find((r) => r.id === selected);
+function draw(m: MlMap, routes: ScoredRoute[], metro: MetroOption | null, selected: number) {
+  const metroSel = metro !== null && selected === metro.id;
+  // The metro option's walking legs are drawn like routes, all under the metro option's id.
+  const lines = [...routes, ...(metro?.legs.map((l) => ({ ...l, id: metro.id })) ?? [])];
+  const focus = lines.filter((r) => r.id === selected);
   // Draw the selected route last so it sits on top of the alternatives.
-  const ordered = [...routes].sort((a, b) => Number(a.id === selected) - Number(b.id === selected));
+  const ordered = [...lines].sort((a, b) => Number(a.id === selected) - Number(b.id === selected));
   (m.getSource("routes") as GeoJSONSource).setData({
     type: "FeatureCollection",
     features: ordered.map((r) => ({
@@ -221,14 +257,35 @@ function draw(m: MlMap, routes: ScoredRoute[], selected: number) {
       geometry: { type: "LineString", coordinates: r.coords },
     })),
   });
+  (m.getSource("ride") as GeoJSONSource).setData({
+    type: "FeatureCollection",
+    features: (metro?.ride.segments ?? []).flatMap((sg) => [
+      {
+        type: "Feature" as const,
+        properties: { colour: sg.colour, selected: metroSel },
+        geometry: { type: "LineString" as const, coordinates: sg.coords },
+      },
+      ...[
+        { name: sg.from, at: sg.coords[0] },
+        { name: sg.to, at: sg.coords[sg.coords.length - 1] },
+      ].map((st) => ({
+        type: "Feature" as const,
+        properties: { colour: sg.colour, selected: metroSel, name: st.name },
+        geometry: { type: "Point" as const, coordinates: st.at },
+      })),
+    ]),
+  });
   (m.getSource("gaps") as GeoJSONSource).setData({
     type: "FeatureCollection",
-    features: (sel?.gaps ?? []).map((g) => ({
+    features: focus.flatMap((sel) => sel.gaps).map((g) => ({
       type: "Feature", properties: { length: g.length },
       geometry: { type: "LineString", coordinates: g.coords },
     })),
   });
-  const places = sel ? [...sel.places, ...sel.help.filter((h) => !sel.places.some((p) => p.lon === h.lon && p.lat === h.lat))] : [];
+  const places = focus.flatMap((sel) => [
+    ...sel.places,
+    ...sel.help.filter((h) => !sel.places.some((p) => p.lon === h.lon && p.lat === h.lat)),
+  ]);
   (m.getSource("places") as GeoJSONSource).setData({
     type: "FeatureCollection",
     features: [
@@ -240,7 +297,7 @@ function draw(m: MlMap, routes: ScoredRoute[], selected: number) {
         },
         geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
       })),
-      ...(sel?.cameras ?? []).map((c) => ({
+      ...focus.flatMap((sel) => sel.cameras).map((c) => ({
         type: "Feature" as const,
         properties: { name: "CCTV camera", label: "Camera", open: true, hours: "camera", oh: "", color: KIND_COLOR.camera },
         geometry: { type: "Point" as const, coordinates: c },
