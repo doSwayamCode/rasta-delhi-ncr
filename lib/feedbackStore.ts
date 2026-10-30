@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { SHEET_WEBHOOK } from "./sheet";
 
 /**
  * Where feedback answers live, in order of preference:
@@ -20,7 +21,7 @@ export type Source = "redis" | "sheet" | "file" | "temporary";
 const REDIS_URL = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
 const REDIS_KEY = "ghartak:feedback";
-const WEBHOOK = process.env.FEEDBACK_WEBHOOK_URL;
+const WEBHOOK = SHEET_WEBHOOK;
 const SECRET = process.env.FEEDBACK_SECRET ?? "";
 const FILE = process.env.FEEDBACK_FILE ?? path.join(process.cwd(), ".data", "feedback.jsonl");
 const TMP_FILE = path.join(os.tmpdir(), "ghartak-feedback.jsonl");
@@ -116,8 +117,13 @@ export async function readFeedback(): Promise<{ rows: Row[]; source: Source }> {
     return { rows: list.map((s) => JSON.parse(s)), source: "redis" };
   }
   if (WEBHOOK) {
-    const res = await callSheet({ action: "list" });
-    return { rows: (res.rows as Row[]) ?? [], source: "sheet" };
+    // Reading rows back needs the script's own SECRET; without it /admin shows the sheet itself.
+    try {
+      const res = await callSheet({ action: "list" });
+      return { rows: (res.rows as Row[]) ?? [], source: "sheet" };
+    } catch {
+      // fall through to the local copy
+    }
   }
   const file = await readLines(FILE);
   if (file) return { rows: file, source: "file" };

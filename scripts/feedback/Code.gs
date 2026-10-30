@@ -1,11 +1,12 @@
 /**
  * Ghar Tak feedback receiver: a Google Apps Script web app bound to the feedback Google Sheet.
  *
- * Setup (once):
- *   1. Open the sheet > Extensions > Apps Script, paste this file, save.
- *   2. Project Settings > Script properties > add SECRET = <a long random string>.
- *   3. Deploy > New deployment > Web app. Execute as: Me. Who has access: Anyone.
- *   4. Put the web app URL in FEEDBACK_WEBHOOK_URL and the same secret in FEEDBACK_SECRET.
+ * Setup (once, by the sheet's owner):
+ *   1. Open the sheet > Extensions > Apps Script, replace everything with this file, save.
+ *   2. Deploy > New deployment > type "Web app". Execute as: Me. Who has access: Anyone. Deploy,
+ *      and allow access when Google asks.
+ *   3. Copy the web app URL (ends in /exec) into lib/sheet.ts (or FEEDBACK_WEBHOOK_URL).
+ *   Optional: Project Settings > Script properties > SECRET lets the app read rows back.
  *
  * It also answers {"action": "list"} with every row, which the app's /admin page uses.
  * Rows go to the "responses" tab (or the first tab); the header row is created from the first submission and new
@@ -21,10 +22,14 @@ function doPost(e) {
   } catch (err) {
     return out({ ok: false, error: "bad json" });
   }
+  // Appending is open (like a Google Form); reading rows back needs the SECRET script property.
   var secret = PropertiesService.getScriptProperties().getProperty("SECRET");
-  if (!secret || body.secret !== secret) return out({ ok: false, error: "forbidden" });
-  if (body.action === "list") return out({ ok: true, rows: listRows() });
+  if (body.action === "list") {
+    if (!secret || body.secret !== secret) return out({ ok: false, error: "forbidden" });
+    return out({ ok: true, rows: listRows() });
+  }
   var row = body.row || {};
+  if (!row.submitted_at || !row.chosen) return out({ ok: false, error: "not a Ghar Tak answer" });
 
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
