@@ -127,6 +127,9 @@ What's stored:
 
 No names, exact addresses or IP addresses.
 
+Page views are counted with Vercel Web Analytics, which uses no cookies. Only the page path is sent: a shared
+route's link (which contains the trip) is cut to `/`, and `/admin` is not counted.
+
 ## Licences
 
 - OpenStreetMap data © OpenStreetMap contributors, [ODbL 1.0](https://opendatacommons.org/licenses/odbl/). The
