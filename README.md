@@ -1,5 +1,9 @@
 # Ghar Tak
 
+[![Watch the Ghar Tak film (2 min)](media/ghar-tak-film.jpg)](media/ghar-tak-film.mp4)
+
+*Watch the 2-minute film: English voice-over, Hindi captions. Click the image to play it.*
+
 Night-time route comparison for **Delhi NCR**: all of Delhi, Gurugram and Manesar, Faridabad, Noida and Greater
 Noida, Ghaziabad, Sonipat, Bahadurgarh and Bhiwadi.
 
