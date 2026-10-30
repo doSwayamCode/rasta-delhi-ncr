@@ -1,5 +1,9 @@
 # Ghar Tak
 
+[![Watch the Ghar Tak film (2 min)](media/ghar-tak-film.jpg)](media/ghar-tak-film.mp4)
+
+*Watch the 2-minute film: English voice-over, Hindi captions. Click the image to play it.*
+
 Night-time route comparison for **Delhi NCR**: all of Delhi, Gurugram and Manesar, Faridabad, Noida and Greater
 Noida, Ghaziabad, Sonipat, Bahadurgarh and Bhiwadi.
 
@@ -122,6 +126,9 @@ What's stored:
 - a coarse outline of that route, with every point within 400 m of the start or end removed
 
 No names, exact addresses or IP addresses.
+
+Page views are counted with Vercel Web Analytics, which uses no cookies. Only the page path is sent: a shared
+route's link (which contains the trip) is cut to `/`, and `/admin` is not counted.
 
 ## Licences
 

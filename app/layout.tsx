@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import SiteAnalytics from "@/components/SiteAnalytics";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
 import "./globals.css";
 
@@ -27,7 +28,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <SiteAnalytics />
+      </body>
     </html>
   );
 }
