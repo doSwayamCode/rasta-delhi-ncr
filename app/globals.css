@@ -647,6 +647,24 @@ a {
   color: var(--muted);
 }
 
+.contact-dev {
+  margin: 12px 0 0;
+  font-size: 13px;
+  text-align: center;
+}
+
+.contact-dev a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.contact-dev a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .about {
   margin-top: 8px;
   color: var(--text-2);
