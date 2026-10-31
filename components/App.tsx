@@ -505,6 +505,9 @@ export default function App() {
           <div className="helplines">
             <HelplineList />
           </div>
+          <p className="contact-dev">
+            <a href="mailto:swayamgupta999@gmail.com">Contact us</a>
+          </p>
         </footer>
       </aside>
 
