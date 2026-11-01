@@ -2192,3 +2192,21 @@ details.how summary {
   min-width: 0;
   flex: 0 1 auto;
 }
+
+.metro-closed {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 10px 2px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.metro-closed b {
+  color: var(--text-2);
+}
+
+/* One column that may shrink, so long place names ellipsize instead of pushing the time chip out. */
+.plan {
+  grid-template-columns: minmax(0, 1fr);
+}

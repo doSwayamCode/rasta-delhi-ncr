@@ -27,7 +27,8 @@ open places instead of 6"), and you decide.
 - **Teen mode:** stricter ranking (open places and short empty stretches count more), late-night and quiet-stretch
   warnings, guardian sharing and Childline 1098 on every route.
 - **Walk + metro** across Delhi Metro, the Aqua Line, Rapid Metro Gurgaon and the RRTS, with both walking parts
-  scored. There are no train times (see Known limits).
+  scored. It is only offered when the whole ride fits in the network's hours; otherwise the app says why.
+  There are no train times (see Known limits).
 - **Map layers:** show or hide each kind of place. CCTV points are always shown. An optional layer shows the
   major bus routes.
 - **Share a route:** the whole trip is in the URL.
@@ -73,7 +74,9 @@ All the weights and thresholds are in `PARAMS` in [`lib/score.ts`](lib/score.ts)
   defaults (eateries 11 am–11 pm, for example), and the map labels them as assumed.
 - **Not live.** No live crowd, traffic or incident data. Rush is an estimate.
 - **No train times.** DMRC's timetable isn't openly licensed, so walk + metro uses estimated ride times and
-  reminds you to check the last train.
+  reminds you to check the last train. Service hours are the usual published ones (`SERVICE_HOURS` in
+  [`lib/metro.ts`](lib/metro.ts)): Delhi Metro about 6 am–11 pm; Noida Metro and Namo Bharat 6 am (8 am on
+  Sundays) to 10 pm; Rapid Metro Gurugram about 6 am–10 pm. Event days (IPL matches, Diwali) change them.
 - **Uneven coverage.** CCTV and police phone numbers are sparse outside central Delhi. Satellite light is coarse
   (about 500 m per pixel).
 - **Not a safety guarantee.** It helps you compare options. In an emergency, call 112.
