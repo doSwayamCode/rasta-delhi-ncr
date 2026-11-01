@@ -26,6 +26,8 @@ interface ApiResult {
   depart: string;
   routes: ScoredRoute[];
   metro: MetroOption | null;
+  /** Why there is no walk + metro option (the metro is not running then), if that is the reason. */
+  metroClosed?: string | null;
 }
 
 /** Wall-clock presets in IST; each resolves to its next occurrence. */
@@ -586,6 +588,12 @@ export default function App() {
             </li>
           )}
         </ol>
+        {result.metroClosed && (
+          <p className="metro-closed">
+            <Icon name="train" size={16} />
+            <span><b>No walk + metro option.</b> {result.metroClosed}</span>
+          </p>
+        )}
         <div className="actions inline"><Share text={shareFor(selected)} /></div>
         <Feedback
           tripKey={`${result.mode}|${from.point.join(",")}|${to.point.join(",")}`}
