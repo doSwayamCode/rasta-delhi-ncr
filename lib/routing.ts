@@ -14,9 +14,8 @@ export interface Candidate {
 
 /**
  * FOSSGIS's public OSRM instances (routing.openstreetmap.de) serve separate car and foot graphs
- * built from current OSM data. They allow light, non-commercial use with an identifying UA. When
- * they fail, requests go to OpenRouteService (ORS_API_KEY, below). For real traffic, run your own
- * OSRM and point OSRM_CAR_URL / OSRM_FOOT_URL at it.
+ * built from current OSM data. They allow light, non-commercial use with an identifying UA; for
+ * real traffic, run your own OSRM and point OSRM_CAR_URL / OSRM_FOOT_URL at it.
  */
 const PROFILES: Record<Mode, string> = {
   drive: process.env.OSRM_CAR_URL ?? "https://routing.openstreetmap.de/routed-car/route/v1/driving",
@@ -32,39 +31,11 @@ interface OsrmRoute {
   legs: { summary: string }[];
 }
 
-/**
- * Backup router: OpenRouteService, used only when the public OSRM servers fail or refuse. Its free
- * key allows 2,000 directions a day. Without ORS_API_KEY there is no backup.
- */
-const ORS_KEY = process.env.ORS_API_KEY ?? "";
-const ORS_PROFILES: Record<Mode, string> = { drive: "driving-car", walk: "foot-walking" };
-
-// After OSRM fails, go straight to the backup for a minute instead of waiting on more timeouts.
-let osrmDownUntil = 0;
-
-// Recent answers, per server instance: the same search (or the timeline right after it) reuses them.
-const CACHE_MS = 60 * 60_000;
-const CACHE_MAX = 400;
-const cache = new Map<string, { at: number; routes: OsrmRoute[] }>();
-
-function cached(key: string): OsrmRoute[] | null {
-  const hit = cache.get(key);
-  if (!hit || Date.now() - hit.at > CACHE_MS) return null;
-  cache.delete(key);
-  cache.set(key, hit); // most recently used last
-  return hit.routes;
-}
-
-function remember(key: string, routes: OsrmRoute[]) {
-  cache.set(key, { at: Date.now(), routes });
-  while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
-}
-
 /** One retry after a short pause for timeouts, network errors, 429 and 5xx from the shared router. */
 async function fetchWithRetry(url: string): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10_000) });
+      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15_000) });
       if ((res.status === 429 || res.status >= 500) && attempt === 0) {
         await new Promise((r) => setTimeout(r, 800));
         continue;
@@ -77,7 +48,7 @@ async function fetchWithRetry(url: string): Promise<Response> {
   }
 }
 
-async function osrmServer(mode: Mode, points: LngLat[], alternatives: boolean): Promise<OsrmRoute[]> {
+async function osrm(mode: Mode, points: LngLat[], alternatives: boolean): Promise<OsrmRoute[]> {
   const coords = points.map((p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`).join(";");
   const url =
     `${PROFILES[mode]}/${coords}?overview=full&geometries=geojson&steps=true` +
@@ -91,77 +62,6 @@ async function osrmServer(mode: Mode, points: LngLat[], alternatives: boolean): 
     throw new Error(`router ${body.code}`);
   }
   return body.routes as OsrmRoute[];
-}
-
-interface OrsFeature {
-  geometry: { coordinates: LngLat[] };
-  properties: {
-    summary: { distance?: number; duration?: number };
-    segments?: { steps?: { name?: string; distance?: number }[] }[];
-  };
-}
-
-/** OpenRouteService's answer in OSRM's shape; the leg summary is its two longest named roads. */
-export function fromOrs(f: OrsFeature): OsrmRoute {
-  const byName = new Map<string, number>();
-  for (const seg of f.properties.segments ?? []) {
-    for (const st of seg.steps ?? []) {
-      const n = (st.name ?? "").trim();
-      if (n && n !== "-") byName.set(n, (byName.get(n) ?? 0) + (st.distance ?? 0));
-    }
-  }
-  const summary = [...byName].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([n]) => n).join(", ");
-  return {
-    distance: f.properties.summary.distance ?? 0,
-    duration: f.properties.summary.duration ?? 0,
-    geometry: { coordinates: f.geometry.coordinates },
-    legs: [{ summary }],
-  };
-}
-
-async function orsServer(mode: Mode, points: LngLat[], alternatives: boolean): Promise<OsrmRoute[]> {
-  const body: Record<string, unknown> = {
-    coordinates: points.map((p) => [Number(p[0].toFixed(6)), Number(p[1].toFixed(6))]),
-    instructions: true,
-  };
-  if (alternatives && points.length === 2) body.alternative_routes = { target_count: 3, share_factor: 0.6, weight_factor: 1.6 };
-  if (points.length > 2) body.continue_straight = true;
-  const res = await fetch(`https://api.openrouteservice.org/v2/directions/${ORS_PROFILES[mode]}/geojson`, {
-    method: "POST",
-    headers: { Authorization: ORS_KEY, "content-type": "application/json", accept: "application/geo+json", "User-Agent": UA },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(12_000),
-  });
-  const json = await res.json().catch(() => ({}));
-  // 2004/2009/2010: points too far apart, no route, or no road near a point.
-  const code = json?.error?.code;
-  if (code === 2004 || code === 2009 || code === 2010) return [];
-  if (!res.ok) throw new Error(`backup router ${res.status}`);
-  return ((json.features ?? []) as OrsFeature[]).map(fromOrs);
-}
-
-/**
- * Routes from OSRM, falling back to OpenRouteService when OSRM is down or refusing. "No route"
- * from OSRM is an answer, not a failure, so it does not trigger the backup.
- */
-async function osrm(mode: Mode, points: LngLat[], alternatives: boolean): Promise<OsrmRoute[]> {
-  const key = `${mode}|${alternatives ? 1 : 0}|${points.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join(";")}`;
-  const hit = cached(key);
-  if (hit) return hit;
-  let routes: OsrmRoute[];
-  if (Date.now() < osrmDownUntil && ORS_KEY) {
-    routes = await orsServer(mode, points, alternatives);
-  } else {
-    try {
-      routes = await osrmServer(mode, points, alternatives);
-    } catch (e) {
-      if (!ORS_KEY) throw e;
-      osrmDownUntil = Date.now() + 60_000;
-      routes = await orsServer(mode, points, alternatives);
-    }
-  }
-  remember(key, routes);
-  return routes;
 }
 
 function toCandidate(r: OsrmRoute, origin: Candidate["origin"]): Candidate {
