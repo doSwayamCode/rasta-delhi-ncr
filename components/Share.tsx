@@ -47,9 +47,10 @@ export function metroShareText({ metro, fromLabel, toLabel, depart, url }: {
  * The trip's two actions: message every trusted contact at once (primary), and a Share button that opens
  * WhatsApp, the system share sheet or copy.
  */
-export default function Share({ text }: { text: string }) {
+export default function Share({ text, onImage }: { text: string; onImage?: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [making, setMaking] = useState(false);
   const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
 
   const copy = async () => {
@@ -84,6 +85,18 @@ export default function Share({ text }: { text: string }) {
           <button type="button" className="btn" onClick={copy}>
             {copied ? "Copied" : "Copy message"}
           </button>
+          {onImage && (
+            <button
+              type="button" className="btn" disabled={making}
+              onClick={async () => {
+                setMaking(true);
+                await onImage().catch(() => undefined);
+                setMaking(false);
+              }}
+            >
+              {making ? "Making image…" : "Route image"}
+            </button>
+          )}
           {canNativeShare && (
             <p className="note share-hint">For several WhatsApp chats at once, tap More apps…, choose WhatsApp, and select the chats.</p>
           )}

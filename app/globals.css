@@ -2210,3 +2210,482 @@ details.how summary {
 .plan {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* Trip mode ------------------------------------------------------------- */
+
+.me-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6);
+  animation: me-pulse 2s infinite;
+}
+
+@keyframes me-pulse {
+  70% {
+    box-shadow: 0 0 0 16px rgba(59, 130, 246, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+.btn.big {
+  width: 100%;
+  height: 52px;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.btn.primary.big,
+.trip .btn.primary {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--on-accent);
+}
+
+.btn.ok {
+  background: var(--go);
+  border-color: var(--go);
+  color: #fff;
+}
+
+.btn.danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.start-trip {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: center;
+  text-align: left;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line));
+  background: color-mix(in srgb, var(--good) 10%, var(--raise));
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.start-trip .icon {
+  grid-row: span 2;
+  color: var(--good);
+}
+
+.start-trip small {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.trip-points {
+  margin: 4px 0 14px;
+}
+
+.trip-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--raise);
+  border: 1px solid var(--line);
+}
+
+.trip-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.trip-row > span {
+  flex: 1;
+  display: grid;
+}
+
+.trip-row small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.trip-box > .link {
+  justify-self: start;
+}
+
+.trip-name {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.trip-name input {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 16px;
+}
+
+input.toggle {
+  appearance: none;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--line-strong);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+input.toggle::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+input.toggle:checked {
+  background: var(--go);
+}
+
+input.toggle:checked::after {
+  transform: translateX(18px);
+}
+
+.trip-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 650;
+  background: var(--raise);
+  color: var(--text-2);
+}
+
+.pill i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.pill.good i {
+  background: var(--good);
+}
+
+.pill.warn {
+  color: var(--accent);
+}
+
+.pill.warn i {
+  background: var(--accent-fill);
+}
+
+.pill.live i,
+.live-dot {
+  background: #ef4444;
+  animation: blink 1.4s infinite;
+}
+
+.live-dot {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.trip-eta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.trip-eta b {
+  font-size: 24px;
+  letter-spacing: -0.01em;
+}
+
+.trip-progress {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+  margin: 10px 0 6px;
+}
+
+.trip-progress i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent-fill), var(--good));
+  transition: width 0.6s;
+}
+
+.trip-to {
+  margin: 0 0 12px;
+}
+
+.ahead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  background: var(--raise);
+}
+
+.ahead > span {
+  flex: 1;
+}
+
+.ahead.warn {
+  background: color-mix(in srgb, var(--accent-fill) 12%, var(--raise));
+  color: var(--text);
+}
+
+.ahead.warn .icon {
+  color: var(--accent);
+}
+
+.ahead.info .icon {
+  color: #7f9cff;
+}
+
+.trip-actions {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0 6px;
+}
+
+.trip-actions .btn {
+  flex: 1;
+  height: 46px;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  font-weight: 650;
+  font-size: 14.5px;
+}
+
+.trip.arrived {
+  display: grid;
+  gap: 12px;
+}
+
+.trip-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 6px 0 4px;
+}
+
+.why-ic.big {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+}
+
+.trip-banner {
+  cursor: default;
+}
+
+dialog.trip-check {
+  width: min(420px, calc(100vw - 28px));
+  border: 0;
+  border-radius: 22px;
+  padding: 22px 18px 18px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: center;
+  display: none;
+  gap: 10px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+dialog.trip-check[open] {
+  display: grid;
+}
+
+dialog.trip-check::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+dialog.trip-check h2 {
+  margin: 0;
+  font-size: 26px;
+}
+
+dialog.trip-check p {
+  margin: 0;
+}
+
+dialog.trip-check.alarm {
+  border: 3px solid #dc2626;
+  animation: alarm-flash 1s infinite;
+}
+
+@keyframes alarm-flash {
+  50% {
+    box-shadow: 0 0 0 10px rgba(220, 38, 38, 0.35), 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+}
+
+dialog.trip-check .sos-call {
+  margin: 4px 0;
+}
+
+.count {
+  --p: 100;
+  justify-self: center;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--accent-fill) calc(var(--p) * 1%), var(--line) 0);
+  position: relative;
+}
+
+.count::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+.count b {
+  position: relative;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Live link page (what contacts see) */
+
+.live-page {
+  position: fixed;
+  inset: 0;
+  background: var(--map-bg);
+}
+
+.live-map {
+  position: absolute !important;
+  inset: 0;
+}
+
+.live-head {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: 10px;
+  right: 60px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 32px var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.live-head img {
+  border-radius: 7px;
+}
+
+.live-head > div {
+  display: grid;
+  min-width: 0;
+}
+
+.live-head .muted {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-card {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 32px var(--shadow);
+  backdrop-filter: blur(14px);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.live-banner {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: var(--raise);
+  font-size: 14px;
+}
+
+.live-banner b {
+  font-size: 16px;
+}
+
+.live-banner.ok {
+  background: color-mix(in srgb, var(--good) 15%, var(--raise));
+}
+
+.live-banner.check {
+  background: color-mix(in srgb, var(--accent-fill) 15%, var(--raise));
+}
+
+.live-banner.alert {
+  background: color-mix(in srgb, #dc2626 22%, var(--raise));
+  border: 2px solid #dc2626;
+  animation: alarm-flash 1.2s infinite;
+}
+
+.live-banner .sos-call {
+  margin: 8px 0 0;
+}

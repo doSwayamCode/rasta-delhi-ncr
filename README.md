@@ -31,6 +31,22 @@ open places instead of 6"), and you decide.
   There are no train times (see Known limits).
 - **Map layers:** show or hide each kind of place. CCTV points are always shown. An optional layer shows the
   major bus routes.
+- **Trip mode:** tap Start trip on a route and Ghar Tak follows you along it on your phone:
+  - it shows time and distance left, a live ETA, and what is coming up ("In 250 m: 630 m with nothing open",
+    "Police in 600 m");
+  - it asks "Are you OK?" if you leave the route, stop for 5 minutes (8 in a cab), run well past your
+    arrival time, or start moving at vehicle speed on foot. No answer in 60 seconds sounds an alarm and
+    gets a message to your trusted contacts ready to send;
+  - on arrival, one tap tells everyone you reached.
+  The rules are in [`lib/tripWatch.ts`](lib/tripWatch.ts). Websites can't run in the background or send texts
+  by themselves, so Ghar Tak keeps the screen on and asks you to keep it open, and messages open in your SMS
+  app for you to send.
+- **Live link for your contacts:** with trip mode on, your contacts get a link (`/t/…`) that shows your
+  position on the route, your ETA and your status, and turns red if you don't answer a check. It needs
+  Upstash Redis (see Configuration) and is deleted an hour after the trip ends, or 12 hours after the last
+  update.
+- **Route image:** Share → Route image makes a picture of the route on the real map, with its score and key
+  facts, for WhatsApp or Instagram.
 - **Share a route:** the whole trip is in the URL.
 - **Light and dark mode:** follows the device by default.
 - **Feedback:** two-tap questions after each search, stored by the app and viewable at `/admin`.
@@ -100,7 +116,7 @@ npm run data
 | Variable | Purpose |
 | --- | --- |
 | `ADMIN_PASSWORD` | Optional. Changes the `/admin` password (the built-in one is stored only as a scrypt hash). |
-| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis for feedback answers (set automatically by Vercel's Upstash integration; `UPSTASH_REDIS_REST_URL`/`_TOKEN` also work) |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis: needed for live trip links, and used for feedback answers (set automatically by Vercel's Upstash integration; `UPSTASH_REDIS_REST_URL`/`_TOKEN` also work) |
 | `FEEDBACK_FILE` | Where answers are stored on a host with a persistent disk (default `.data/feedback.jsonl`) |
 | `FEEDBACK_WEBHOOK_URL`, `FEEDBACK_SHEET_ID` | Override the Google Sheet set in `lib/sheet.ts` |
 | `OSRM_CAR_URL`, `OSRM_FOOT_URL` | Your own OSRM servers (recommended before launch) |
