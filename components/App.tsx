@@ -18,6 +18,9 @@ import Feedback from "./Feedback";
 import Share, { metroShareText, shareText } from "./Share";
 import ThemeToggle from "./ThemeToggle";
 import Timeline, { TimelineData } from "./Timeline";
+import { TripPanel, TripSession, TripStart, loadTrip } from "./Trip";
+import { MAP_ASPECT, routeCard } from "./routeCard";
+import type { Snapshot } from "./MapView";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="map" /> });
 
@@ -206,10 +209,23 @@ export default function App() {
   const [dragH, setDragH] = useState<number | null>(null);
   const [planRef, planH] = useHeight<HTMLElement>();
   const bodyRef = useRef<HTMLDivElement>(null);
+  // Trip mode: the start screen, the running trip (survives a reload) and the live position.
+  const [tripStart, setTripStart] = useState(false);
+  const [session, setSession] = useState<TripSession | null>(null);
+  const [me, setMe] = useState<{ lon: number; lat: number; acc: number } | null>(null);
+  const snapRef = useRef<((coords: LngLat[], aspect: number) => Promise<Snapshot>) | null>(null);
   const drag = useRef<{ y: number; h: number; moved: boolean } | null>(null);
   const wantRoute = useRef<number | null>(null);
   const restored = useRef(false);
   const skipPickerSync = useRef(false);
+
+  useEffect(() => {
+    const s = loadTrip();
+    if (s) {
+      setSession(s);
+      setSnap("half");
+    }
+  }, []);
 
   // Restore a shared trip from the URL once, on first load.
   useEffect(() => {
@@ -384,7 +400,7 @@ export default function App() {
   const padding = desktop
     ? { top: 24, bottom: 24, left: 432, right: 56 }
     : { top: planBottom, bottom: heights[snap], left: 0, right: 44 };
-  const planCollapsed = !desktop && !planOpen && Boolean(from && to);
+  const planCollapsed = (!desktop && !planOpen && Boolean(from && to)) || Boolean(session);
 
   const onGrabDown = (e: React.PointerEvent) => {
     drag.current = { y: e.clientY, h: sheetH, moved: false };
@@ -428,8 +444,52 @@ export default function App() {
       : "";
   };
 
+  /** Makes a picture of the route (real map, score, facts) and shares it, or downloads it. */
+  const shareImage = async (r: ScoredRoute) => {
+    if (!snapRef.current || !result || !from || !to) return;
+    const snapshot = await snapRef.current(r.coords, MAP_ASPECT);
+    const blob = await routeCard({
+      snap: snapshot, route: r, mode: result.mode, from: short(from), to: short(to),
+      when: shortTime(result.depart), teen, host: window.location.host,
+    });
+    const file = new File([blob], "ghar-tak-route.png", { type: "image/png" });
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], text: shareFor(r.id) }).catch(() => undefined);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
   let body: React.ReactNode;
-  if (about) {
+  if (session) {
+    body = (
+      <TripPanel
+        session={session} onPosition={setMe}
+        onEnd={() => {
+          setSession(null);
+          setMe(null);
+          setDetail(true);
+        }}
+      />
+    );
+  } else if (tripStart && result && selRoute && from && to) {
+    body = (
+      <TripStart
+        route={selRoute} mode={result.mode} from={short(from)} to={short(to)}
+        onCancel={() => setTripStart(false)}
+        onStart={(s) => {
+          setTripStart(false);
+          setSession(s);
+          setSnap("half");
+        }}
+      />
+    );
+  } else if (about) {
     body = (
       <div className="view">
         <div className="view-head">
@@ -515,7 +575,14 @@ export default function App() {
               <p className="note">Checking how this route changes through the evening…</p>
             ))}
         </div>
-        <div className="actions"><Share text={shareFor(r.id)} /></div>
+        <div className="actions">
+          <button type="button" className="btn start-trip" onClick={() => setTripStart(true)}>
+            <Icon name="walk" />
+            Start trip
+            <small>check-ins and live location for your people</small>
+          </button>
+          <Share text={shareFor(r.id)} onImage={() => shareImage(r)} />
+        </div>
       </div>
     );
   } else if (result && detail && selMetro) {
@@ -625,13 +692,15 @@ export default function App() {
           bbox={meta?.bbox ?? null}
           from={from?.point ?? null}
           to={to?.point ?? null}
-          routes={routes}
-          metro={metro}
+          routes={session ? [session.route] : routes}
+          metro={session ? null : metro}
           theme={theme}
           hidden={hidden}
           showBuses={showBuses}
-          selected={selected}
+          selected={session ? session.route.id : selected}
           padding={padding}
+          me={me}
+          snapshot={snapRef}
           onPick={pickOnMap}
           onMove={moveMarker}
           onSelect={(id) => (result ? openRoute(id) : setSelected(id))}
@@ -640,7 +709,15 @@ export default function App() {
 
       <div className="dock">
         <section ref={planRef} className={planCollapsed ? "plan collapsed" : "plan"} aria-label="Trip">
-          {planCollapsed ? (
+          {session ? (
+            <div className="plan-mini trip-banner">
+              <span className="mini-route">
+                <span className="live-dot" />
+                <b>On your way to {session.to}</b>
+              </span>
+              <span className="chip"><Icon name={session.mode === "walk" ? "walk" : "car"} size={15} />Trip</span>
+            </div>
+          ) : planCollapsed ? (
             <button
               type="button" className="plan-mini" aria-label="Edit trip"
               onClick={() => {

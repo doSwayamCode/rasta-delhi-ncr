@@ -69,7 +69,7 @@ export default function TrustedContacts({ text }: { text: string }) {
   );
 }
 
-function ContactsDialog({
+export function ContactsDialog({
   ref, list, canPick, onChange,
 }: {
   ref: React.RefObject<HTMLDialogElement | null>;

@@ -23,6 +23,10 @@ interface Props {
   showBuses: boolean;
   /** Screen space covered by the floating panels, so routes are framed in the visible part of the map. */
   padding: { top: number; bottom: number; left: number; right: number };
+  /** The person's live position during a trip (a blue dot the map follows). */
+  me?: { lon: number; lat: number; acc: number } | null;
+  /** Set to a function that renders the map around a route as an image, for route cards. */
+  snapshot?: React.RefObject<((coords: LngLat[], aspect: number) => Promise<Snapshot>) | null>;
   onPick: (p: LngLat) => void;
   onMove: (which: "from" | "to", p: LngLat) => void;
   onSelect: (id: number) => void;
@@ -47,10 +51,18 @@ function inset(p: Props["padding"]) {
   return { top, bottom, left, right };
 }
 
+/** A map image for a route card: the PNG, the crop to use, and where A and B are (0..1 of the crop). */
+export interface Snapshot {
+  url: string;
+  crop: { x: number; y: number; w: number; h: number };
+  start: [number, number];
+  end: [number, number];
+}
+
 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 export default function MapView({
-  bbox, from, to, routes, metro, selected, theme, hidden, showBuses, padding, onPick, onMove, onSelect,
+  bbox, from, to, routes, metro, selected, theme, hidden, showBuses, padding, me = null, snapshot, onPick, onMove, onSelect,
 }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MlMap | null>(null);
@@ -62,6 +74,8 @@ export default function MapView({
   latest.current = { routes, metro, selected, theme, bbox, hidden, showBuses };
   const styleTheme = useRef<Theme | null>(null);
   const pad = useRef(padding);
+  const meMarker = useRef<Marker | null>(null);
+  const userMovedAt = useRef(0);
   pad.current = padding;
 
   useEffect(() => {
@@ -82,6 +96,7 @@ export default function MapView({
       new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false }),
       "top-right",
     );
+    m.on("dragstart", () => (userMovedAt.current = Date.now()));
     m.on("load", () => {
       addOverlays(m, latest.current.theme);
       applyCoverage(m, latest.current.bbox);
@@ -209,6 +224,67 @@ export default function MapView({
     return () => clearTimeout(t);
     // Re-frame when the panels change size (a phone's sheet snapping up or down), not on every pixel.
   }, [routes, metro, padding.top, padding.bottom, padding.left]);
+
+  // Trip mode: the blue dot, and the map follows it unless the person has just panned around.
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    if (!me) {
+      meMarker.current?.remove();
+      meMarker.current = null;
+      return;
+    }
+    if (!meMarker.current) {
+      const node = document.createElement("div");
+      node.className = "me-dot";
+      node.setAttribute("aria-label", "You are here");
+      meMarker.current = new maplibregl.Marker({ element: node }).setLngLat([me.lon, me.lat]).addTo(m);
+    } else {
+      meMarker.current.setLngLat([me.lon, me.lat]);
+    }
+    if (Date.now() - userMovedAt.current > 20_000) {
+      m.easeTo({ center: [me.lon, me.lat], zoom: Math.max(m.getZoom(), 15), padding: inset(pad.current), duration: 800 });
+    }
+  }, [me]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    snapshot.current = async (coords, aspect) => {
+      const m = map.current;
+      if (!m) throw new Error("map not ready");
+      const camera = { center: m.getCenter(), zoom: m.getZoom(), bearing: m.getBearing(), pitch: m.getPitch() };
+      const canvas = m.getCanvas();
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      // The largest box of the card's shape that fits on screen, with the route framed inside it.
+      const bw = Math.min(W, H * aspect), bh = bw / aspect;
+      const box = { x: (W - bw) / 2, y: (H - bh) / 2, w: bw, h: bh };
+      const b = new maplibregl.LngLatBounds();
+      for (const c of coords) b.extend(c);
+      m.fitBounds(b, {
+        padding: { top: box.y + bh * 0.12, bottom: box.y + bh * 0.12, left: box.x + bw * 0.1, right: box.x + bw * 0.1 },
+        duration: 0, maxZoom: 16,
+      });
+      await new Promise((r) => m.once("idle", r));
+      const url = await new Promise<string>((res) => {
+        m.once("render", () => res(canvas.toDataURL("image/png")));
+        m.triggerRepaint();
+      });
+      const k = canvas.width / W;
+      const at = (c: LngLat) => {
+        const p = m.project(c);
+        return [(p.x - box.x) / bw, (p.y - box.y) / bh] as [number, number];
+      };
+      const out: Snapshot = {
+        url, crop: { x: box.x * k, y: box.y * k, w: bw * k, h: bh * k },
+        start: at(coords[0]), end: at(coords[coords.length - 1]),
+      };
+      m.jumpTo(camera);
+      return out;
+    };
+    return () => {
+      snapshot.current = null;
+    };
+  }, [snapshot]);
 
   return <div ref={el} className="map" />;
 }
