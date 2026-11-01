@@ -10,11 +10,11 @@ import type { Component, ScoredRoute } from "@/lib/score";
 import { useTheme } from "@/lib/theme";
 import { COMPONENT_LABEL, KIND_COLORS, LEGEND, fmtDistance, fmtDuration, scoreColor, summary } from "./format";
 import PlaceSearch, { Picked, reverseGeocode } from "./PlaceSearch";
-import AlongRoute from "./AlongRoute";
+import AlongRoute, { lightLabel } from "./AlongRoute";
+import Icon, { IconName } from "./Icon";
 import InstallApp from "./InstallApp";
 import { HelplineList, RouteHelp, SosButton } from "./Emergency";
 import Feedback from "./Feedback";
-import TrustedContacts from "./TrustedContacts";
 import Share, { metroShareText, shareText } from "./Share";
 import ThemeToggle from "./ThemeToggle";
 import Timeline, { TimelineData } from "./Timeline";
@@ -118,8 +118,67 @@ function fmtIst(iso: string): string {
   }).format(new Date(iso));
 }
 
+type Snap = "peek" | "half" | "full";
+type Tab = "overview" | "along" | "help" | "time";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "along", label: "Along the way" },
+  { id: "help", label: "Help" },
+  { id: "time", label: "Best time" },
+];
+
+function useMedia(query: string): boolean {
+  const [match, setMatch] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const update = () => setMatch(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [query]);
+  return match;
+}
+
+/** Height of an element, kept up to date. */
+function useHeight<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+  const ref = useRef<T>(null);
+  const [h, setH] = useState(0);
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([e]) => setH(Math.round(e.borderBoxSize?.[0]?.blockSize ?? e.contentRect.height)));
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, h];
+}
+
+function useViewportHeight(): number {
+  const [vh, setVh] = useState(800);
+  useEffect(() => {
+    const update = () => setVh(window.visualViewport?.height ?? window.innerHeight);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return vh;
+}
+
+/** First part of a place label ("Lajpat Nagar Central Market, New Delhi" → "Lajpat Nagar Central Market"). */
+const short = (p: Picked | null) => (p?.label ?? "").split(",")[0];
+
+/** "11 pm", "10:30 pm", or "Tue 11 pm" when it is not within the next day. */
+function shortTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  const opts: Intl.DateTimeFormatOptions = { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" };
+  if (Math.abs(t - Date.now()) > 20 * 3_600_000) opts.weekday = "short";
+  return new Intl.DateTimeFormat("en-IN", opts).format(t).replace(":00", "").replace(",", "");
+}
+
 export default function App() {
   const { theme } = useTheme();
+  const desktop = useMedia("(min-width: 900px)");
+  const vh = useViewportHeight();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [from, setFrom] = useState<Picked | null>(null);
   const [to, setTo] = useState<Picked | null>(null);
@@ -136,6 +195,16 @@ export default function App() {
   const [showBuses, setShowBuses] = usePref<boolean>("ghartak-bus-layer", false);
   const [layersOpen, setLayersOpen] = useState(false);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
+  // Layout: the plan card (top), the sheet (bottom on phones, side panel on desktop) and its views.
+  const [planOpen, setPlanOpen] = useState(true);
+  const [timeOpen, setTimeOpen] = useState(false);
+  const [detail, setDetail] = useState(false);
+  const [tab, setTab] = useState<Tab>("overview");
+  const [snap, setSnap] = useState<Snap>("peek");
+  const [dragH, setDragH] = useState<number | null>(null);
+  const [planRef, planH] = useHeight<HTMLElement>();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ y: number; h: number; moved: boolean } | null>(null);
   const wantRoute = useRef<number | null>(null);
   const restored = useRef(false);
   const skipPickerSync = useRef(false);
@@ -185,6 +254,7 @@ export default function App() {
   useEffect(() => {
     if (!from || !to) {
       setResult(null);
+      setDetail(false);
       return;
     }
     const ac = new AbortController();
@@ -208,6 +278,12 @@ export default function App() {
         wantRoute.current = null;
         const valid = want !== null && (body.routes.some((r) => r.id === want) || body.metro?.id === want);
         setSelected(valid ? want : (best?.id ?? 0));
+        // A shared link opens straight on its route; a new search shows the list to compare.
+        setDetail(valid);
+        setTab("overview");
+        setTimeOpen(false);
+        setPlanOpen(false);
+        setSnap("half");
         setLoading(false);
       })
       .catch((e: Error) => {
@@ -237,6 +313,11 @@ export default function App() {
     return () => ac.abort();
   }, [result, from, to, teen]);
 
+  // A new view starts at the top of the sheet.
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+  }, [detail, tab, about, selected]);
+
   const pickTime = useCallback((iso: string) => {
     setPreset("custom");
     setCustom(istInputValue(new Date(iso)));
@@ -258,6 +339,13 @@ export default function App() {
     set({ label: await reverseGeocode(p), point: p });
   }, []);
 
+  const openRoute = useCallback((id: number) => {
+    setSelected(id);
+    setDetail(true);
+    setAbout(false);
+    setSnap((s) => (s === "peek" ? "half" : s));
+  }, []);
+
   const useMyLocation = () => {
     if (!navigator.geolocation) {
       setError("This browser does not share location.");
@@ -275,242 +363,255 @@ export default function App() {
 
   const routes = result?.routes ?? [];
   const fastest = routes.length ? Math.min(...routes.map((r) => r.duration)) : 0;
+  const fastestRoute = routes.find((r) => r.duration === fastest) ?? null;
   const bestScore = routes.length ? Math.max(...routes.map((r) => r.score ?? -1)) : 0;
   const metro = result?.metro ?? null;
-  const sel = routes.find((r) => r.id === selected) ?? (metro && metro.id === selected ? metro : undefined);
+  const selRoute = routes.find((r) => r.id === selected) ?? null;
+  const selMetro = metro && metro.id === selected ? metro : null;
+  const timeLabel =
+    preset === "now" ? "Now" : preset === "custom" ? shortTime(`${custom}:00+05:30`) : PRESETS.find((p) => p.id === preset)!.label;
+  const scoreName = teen ? "teen score" : "night score";
+
+  // Sheet geometry (phones). The plan card's bottom edge and the sheet's height also frame the map.
+  const planBottom = 12 + planH;
+  const peekH = !from || !to ? 250 : 210;
+  const fullH = Math.max(320, vh - planBottom - 76);
+  const halfH = Math.min(fullH, Math.max(peekH + 60, Math.round(vh * 0.48)));
+  const heights: Record<Snap, number> = { peek: Math.min(peekH, fullH), half: halfH, full: fullH };
+  const sheetH = dragH ?? heights[snap];
+  const padding = desktop
+    ? { top: 24, bottom: 24, left: 432, right: 56 }
+    : { top: planBottom, bottom: heights[snap], left: 0, right: 44 };
+  const planCollapsed = !desktop && !planOpen && Boolean(from && to);
+
+  const onGrabDown = (e: React.PointerEvent) => {
+    drag.current = { y: e.clientY, h: sheetH, moved: false };
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+  };
+  const onGrabMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const dy = d.y - e.clientY;
+    if (Math.abs(dy) > 5) d.moved = true;
+    if (d.moved) setDragH(Math.max(120, Math.min(heights.full, d.h + dy)));
+  };
+  const onGrabUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    if (!d.moved) {
+      setSnap(snap === "peek" ? "half" : snap === "half" ? "full" : "half");
+    } else {
+      const h = dragH ?? d.h;
+      const order: Snap[] = ["peek", "half", "full"];
+      setSnap(order.reduce((a, b) => (Math.abs(heights[b] - h) < Math.abs(heights[a] - h) ? b : a)));
+    }
+    setDragH(null);
+  };
+
+  const shareFor = (id: number) => {
+    if (!result || !from || !to) return "";
+    const r = routes.find((x) => x.id === id);
+    if (r) {
+      return shareText({
+        route: r, mode: result.mode, fromLabel: from.label, toLabel: to.label, depart: result.depart,
+        url: tripUrl(from, to, result.mode, result.depart, r.id, teen),
+      });
+    }
+    return metro
+      ? metroShareText({
+          metro, fromLabel: from.label, toLabel: to.label, depart: result.depart,
+          url: tripUrl(from, to, result.mode, result.depart, metro.id, teen),
+        })
+      : "";
+  };
+
+  let body: React.ReactNode;
+  if (about) {
+    body = (
+      <div className="view">
+        <div className="view-head">
+          <button type="button" className="icon-btn" aria-label="Back" onClick={() => setAbout(false)}><Icon name="left" /></button>
+          <h2>How Ghar Tak works</h2>
+        </div>
+        <About meta={meta} />
+        <h3 className="section-title">Helplines</h3>
+        <HelplineList />
+        <p className="contact-dev">
+          <a href="mailto:swayamgupta999@gmail.com">Contact us</a>
+        </p>
+      </div>
+    );
+  } else if (!from || !to) {
+    body = (
+      <div className="view home">
+        <h2>Where to tonight?</h2>
+        <p className="lead">
+          Search two places, or tap the map to drop A, then B. Ghar Tak checks every route for the hour you&apos;ll be on
+          it: what&apos;s open, how lit and busy it is, and where help is.
+        </p>
+        <h3 className="section-title">Emergency helplines</h3>
+        <HelplineList />
+        <p className="note">
+          Covers Delhi, Gurugram and Manesar, Faridabad, Noida and Greater Noida, Ghaziabad, Sonipat, Bahadurgarh and
+          Bhiwadi (the dashed box on the map).
+        </p>
+        <button type="button" className="link" onClick={() => setAbout(true)}>How the score works and where the data comes from</button>
+        <p className="contact-dev">
+          <a href="mailto:swayamgupta999@gmail.com">Contact us</a>
+        </p>
+      </div>
+    );
+  } else if (loading) {
+    body = (
+      <div className="view" aria-busy="true">
+        <div className="list-head"><h2>Finding routes…</h2><span className="muted">checking what&apos;s open along each</span></div>
+        <div className="skeleton" /><div className="skeleton" /><div className="skeleton" />
+      </div>
+    );
+  } else if (error) {
+    body = <div className="view"><div className="error">{error}</div></div>;
+  } else if (result && detail && selRoute) {
+    const r = selRoute;
+    body = (
+      <div className="view detail">
+        <div className="detail-head">
+          <button type="button" className="icon-btn" aria-label="Back to all routes" onClick={() => setDetail(false)}><Icon name="left" /></button>
+          <Ring score={r.score} label={scoreName} />
+          <div className="detail-title">
+            <h2>{fmtDuration(r.duration)} · {fmtDistance(r.distance)}</h2>
+            <p className="muted">{r.via ? `via ${r.via}` : scoreName}</p>
+          </div>
+        </div>
+        <div className="tabs" role="tablist" aria-label="Route details">
+          {TABS.map((t) => (
+            <button
+              key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={tab === t.id ? "on" : ""}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="tab-body" role="tabpanel">
+          {tab === "overview" && (
+            <>
+              {teen && <TeenBox r={r} mode={result.mode} depart={result.depart} />}
+              <WhyList r={r} fastest={fastestRoute} mode={result.mode} onHelp={() => setTab("help")} />
+              <details className="how">
+                <summary>How this score is made</summary>
+                <ScoreDetails r={r} mode={result.mode} />
+              </details>
+            </>
+          )}
+          {tab === "along" && <AlongRoute r={r} />}
+          {tab === "help" && <RouteHelp points={r.emergency} total={r.distance} />}
+          {tab === "time" &&
+            (timeline ? (
+              <Timeline data={timeline} routeId={r.id} depart={result.depart} onPick={pickTime} />
+            ) : (
+              <p className="note">Checking how this route changes through the evening…</p>
+            ))}
+        </div>
+        <div className="actions"><Share text={shareFor(r.id)} /></div>
+      </div>
+    );
+  } else if (result && detail && selMetro) {
+    body = (
+      <div className="view detail">
+        <div className="detail-head">
+          <button type="button" className="icon-btn" aria-label="Back to all routes" onClick={() => setDetail(false)}><Icon name="left" /></button>
+          <Ring score={selMetro.score} label="walk parts" />
+          <div className="detail-title">
+            <h2>~{fmtDuration(selMetro.duration)} · walk + metro</h2>
+            <p className="muted">{fmtDistance(selMetro.walkDistance)} on foot · {selMetro.board.station} → {selMetro.alight.station}</p>
+          </div>
+        </div>
+        <div className="tab-body"><MetroBreakdown m={selMetro} /></div>
+        <div className="actions"><Share text={shareFor(selMetro.id)} /></div>
+      </div>
+    );
+  } else if (result) {
+    body = (
+      <div className="view">
+        <div className="list-head">
+          <h2>{routes.length === 1 ? "1 way home" : `${routes.length} ways home`}</h2>
+          <span className="muted">scored for {fmtIst(result.depart)}</span>
+        </div>
+        <ol className="cards">
+          {routes.map((r) => {
+            const tags = [
+              r.duration === fastest && { t: "Fastest", c: "amber" },
+              r.score === bestScore && routes.length > 1 && { t: teen ? "Top teen score" : "Top night score", c: "good" },
+            ].filter(Boolean) as { t: string; c: string }[];
+            const s = r.stats;
+            return (
+              <li key={r.id}>
+                <button type="button" className={r.id === selected ? "rcard sel" : "rcard"} onClick={() => openRoute(r.id)}>
+                  <Ring score={r.score} label={scoreName} />
+                  <span className="rc-main">
+                    <span className="rc-top">
+                      <strong>{fmtDuration(r.duration)}</strong>
+                      <span className="muted">
+                        {r.duration > fastest + 30 ? `+${Math.round((r.duration - fastest) / 60)} min` : fmtDistance(r.distance)}
+                      </span>
+                    </span>
+                    <span className="rc-why">
+                      {s.openPlaces} open · {s.longestGap >= 100 ? `empty for ${fmtDistance(s.longestGap)}` : "no long empty stretch"}
+                    </span>
+                    {tags.length > 0 && (
+                      <span className="tags">{tags.map((t) => <span key={t.t} className={`tag ${t.c}`}>{t.t}</span>)}</span>
+                    )}
+                  </span>
+                  <Icon name="right" className="chev" />
+                </button>
+              </li>
+            );
+          })}
+          {metro && (
+            <li>
+              <button type="button" className={selected === metro.id ? "rcard sel" : "rcard"} onClick={() => openRoute(metro.id)}>
+                <Ring score={metro.score} label="walk parts" />
+                <span className="rc-main">
+                  <span className="rc-top"><strong>~{fmtDuration(metro.duration)}</strong><span className="muted">walk + metro</span></span>
+                  <span className="rc-why lines">
+                    {metro.ride.segments.map((sg, i) => (
+                      <span key={i} className="line-chip"><i style={{ background: sg.colour }} />{sg.line}</span>
+                    ))}
+                  </span>
+                  {metro.duration < fastest && <span className="tags"><span className="tag blue">Faster than walking</span></span>}
+                </span>
+                <Icon name="right" className="chev" />
+              </button>
+            </li>
+          )}
+        </ol>
+        <div className="actions inline"><Share text={shareFor(selected)} /></div>
+        <Feedback
+          tripKey={`${result.mode}|${from.point.join(",")}|${to.point.join(",")}`}
+          mode={result.mode}
+          depart={result.depart}
+          from={from.point}
+          to={to.point}
+          routes={routes}
+          metro={metro}
+          teen={teen}
+          selectedId={selected}
+        />
+        <p className="disclaimer">
+          Ghar Tak compares routes using public data; it cannot see what is happening on a street tonight. Use it to
+          weigh options, not as a guarantee. In an emergency call <a href="tel:112">112</a>.{" "}
+          <button type="button" className="link" onClick={() => setAbout(true)}>How the score works</button>
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="app">
-      <aside className="panel">
-        <header className="brand">
-          <div className="brand-top">
-            <h1>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/icons/logo.svg" alt="" width={30} height={30} />
-              Ghar Tak
-            </h1>
-            <div className="brand-actions">
-              <InstallApp />
-              <ThemeToggle />
-            </div>
-          </div>
-          <p>
-            Compare routes across Delhi NCR by how open, lit and busy they are at the hour you travel. Not
-            just the fastest way: the one with people around.
-          </p>
-        </header>
-
-        <section className="controls" aria-label="Trip">
-          <div className="places">
-            <PlaceSearch
-              label="From" marker="A" value={from} bbox={meta?.bbox ?? null}
-              placeholder="From: office, metro station, sector…" onPick={setFrom}
-            />
-            <PlaceSearch
-              label="To" marker="B" value={to} bbox={meta?.bbox ?? null}
-              placeholder="To: home, PG, hotel…" onPick={setTo}
-            />
-            <div className="place-actions">
-              <button type="button" className="link" onClick={useMyLocation}>Use my location as A</button>
-              <button
-                type="button" className="link" disabled={!from && !to}
-                onClick={() => {
-                  setFrom(to);
-                  setTo(from);
-                }}
-              >
-                Swap A and B
-              </button>
-            </div>
-          </div>
-
-          <div className="row">
-            <div className="seg" role="radiogroup" aria-label="Travel mode">
-              {(["walk", "drive"] as const).map((m) => (
-                <button
-                  key={m} type="button" role="radio" aria-checked={mode === m}
-                  className={mode === m ? "on" : ""} onClick={() => setMode(m)}
-                >
-                  {m === "walk" ? "Walking" : "Cab / driving"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <label className="teen-switch">
-            <input type="checkbox" checked={teen} onChange={(e) => setTeen(e.target.checked)} />
-            <span className="switch" aria-hidden />
-            <span>
-              <b>Teen mode</b>
-              <small>Stricter ranking: open, busy main roads first, short empty stretches only</small>
-            </span>
-          </label>
-
-          <div className="row time">
-            <span className="row-label">Leaving</span>
-            <div className="chips">
-              {PRESETS.map((p) => (
-                <button
-                  key={p.id} type="button" className={preset === p.id ? "chip on" : "chip"}
-                  onClick={() => setPreset(p.id)}
-                >
-                  {p.label}
-                </button>
-              ))}
-              <input
-                type="datetime-local" aria-label="Custom departure time (IST)"
-                className={preset === "custom" ? "on" : ""} value={custom}
-                onChange={(e) => {
-                  setCustom(e.target.value);
-                  setPreset("custom");
-                }}
-              />
-            </div>
-          </div>
-        </section>
-
-        <section className="results" aria-live="polite">
-          {!from || !to ? (
-            <div className="hint">
-              <p>Search for two places, or tap the map to drop A, then B. Drag the pins to adjust.</p>
-              <p className="muted">
-                Covers all of Delhi, Gurugram and Manesar, Faridabad, Noida and Greater Noida, Ghaziabad, Sonipat,
-                Bahadurgarh and Bhiwadi (the dashed box on the map).
-              </p>
-            </div>
-          ) : loading ? (
-            <div className="hint">Finding routes and checking what is open along each…</div>
-          ) : error ? (
-            <div className="error">{error}</div>
-          ) : result ? (
-            <>
-              <div className="results-head">
-                <span>{routes.length} route{routes.length === 1 ? "" : "s"}</span>
-                <span className="muted">scored for {fmtIst(result.depart)} IST</span>
-              </div>
-              <ol className="cards">
-                {routes.map((r) => {
-                  const isSel = r.id === selected;
-                  const tags = [
-                    r.duration === fastest && "Fastest",
-                    r.score === bestScore && routes.length > 1 && "Highest night score",
-                  ].filter(Boolean) as string[];
-                  return (
-                    <li key={r.id}>
-                      <button
-                        type="button" className={isSel ? "card sel" : "card"}
-                        aria-pressed={isSel} onClick={() => setSelected(r.id)}
-                      >
-                        <div className="score" style={{ color: scoreColor(r.score), borderColor: scoreColor(r.score) }}>
-                          <span>{r.score ?? "–"}</span>
-                          <small>{teen ? "teen score" : "night score"}</small>
-                        </div>
-                        <div className="card-main">
-                          <div className="card-top">
-                            <strong>{fmtDuration(r.duration)}</strong>
-                            <span className="muted">{fmtDistance(r.distance)}</span>
-                            {r.duration > fastest + 30 && (
-                              <span className="muted">+{Math.round((r.duration - fastest) / 60)} min</span>
-                            )}
-                          </div>
-                          {r.via && <div className="via">via {r.via}</div>}
-                          <div className="tags">
-                            {tags.map((t) => <span key={t} className="tag">{t}</span>)}
-                          </div>
-                        </div>
-                      </button>
-                      {isSel && (
-                        <Breakdown r={r} mode={result.mode} teen={teen} depart={result.depart}>
-                          <Share
-                            text={shareText({
-                              route: r, mode: result.mode, fromLabel: from.label, toLabel: to.label,
-                              depart: result.depart, url: tripUrl(from, to, result.mode, result.depart, r.id, teen),
-                            })}
-                          />
-                          {timeline ? (
-                            <Timeline data={timeline} routeId={r.id} depart={result.depart} onPick={pickTime} />
-                          ) : (
-                            <p className="note">Checking how this route changes through the evening…</p>
-                          )}
-                        </Breakdown>
-                      )}
-                    </li>
-                  );
-                })}
-                {metro && (
-                  <li>
-                    <button
-                      type="button" className={selected === metro.id ? "card sel" : "card"}
-                      aria-pressed={selected === metro.id} onClick={() => setSelected(metro.id)}
-                    >
-                      <div className="score" style={{ color: scoreColor(metro.score), borderColor: scoreColor(metro.score) }}>
-                        <span>{metro.score ?? "–"}</span>
-                        <small>walk parts</small>
-                      </div>
-                      <div className="card-main">
-                        <div className="card-top">
-                          <strong>~{fmtDuration(metro.duration)}</strong>
-                          <span className="muted">{fmtDistance(metro.walkDistance)} on foot</span>
-                        </div>
-                        <div className="lines">
-                          {metro.ride.segments.map((sg, i) => (
-                            <span key={i} className="line-chip">
-                              <i style={{ background: sg.colour }} />
-                              {sg.line}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="tags">
-                          <span className="tag">Walk + metro</span>
-                          {metro.duration < fastest && <span className="tag">Faster than walking</span>}
-                        </div>
-                      </div>
-                    </button>
-                    {selected === metro.id && (
-                      <MetroBreakdown
-                        m={metro}
-                        share={metroShareText({
-                          metro, fromLabel: from.label, toLabel: to.label, depart: result.depart,
-                          url: tripUrl(from, to, result.mode, result.depart, metro.id, teen),
-                        })}
-                      />
-                    )}
-                  </li>
-                )}
-              </ol>
-              <Feedback
-                tripKey={`${result.mode}|${from.point.join(",")}|${to.point.join(",")}`}
-                mode={result.mode}
-                depart={result.depart}
-                from={from.point}
-                to={to.point}
-                routes={routes}
-                metro={metro}
-                teen={teen}
-                selectedId={selected}
-              />
-              <p className="disclaimer">
-                Ghar Tak compares routes using public data; it cannot see what is happening on a street tonight. Use it
-                to weigh options, not as a guarantee. In an emergency call <a href="tel:112">112</a>.
-              </p>
-            </>
-          ) : null}
-        </section>
-
-        <footer className="foot">
-          <button type="button" className="link" onClick={() => setAbout((a) => !a)}>
-            {about ? "Hide" : "How the score works and where the data comes from"}
-          </button>
-          {about && <About meta={meta} />}
-          <div className="helplines">
-            <HelplineList />
-          </div>
-          <p className="contact-dev">
-            <a href="mailto:swayamgupta999@gmail.com">Contact us</a>
-          </p>
-        </footer>
-      </aside>
-
+    <div
+      className={desktop ? "app desk" : "app mob"}
+      style={{ "--plan-b": `${planBottom}px`, "--sheet-h": `${sheetH}px` } as React.CSSProperties}
+    >
       <main className="stage">
         <MapView
           bbox={meta?.bbox ?? null}
@@ -522,43 +623,303 @@ export default function App() {
           hidden={hidden}
           showBuses={showBuses}
           selected={selected}
+          padding={padding}
           onPick={pickOnMap}
           onMove={moveMarker}
-          onSelect={setSelected}
+          onSelect={(id) => (result ? openRoute(id) : setSelected(id))}
         />
-        <div className={layersOpen ? "legend open" : "legend"} aria-label="Map layers">
-          <button type="button" className="legend-head" onClick={() => setLayersOpen(!layersOpen)} aria-expanded={layersOpen}>
-            Map layers {layersOpen ? "▾" : "▸"}
-          </button>
-          <div className="legend-body">
-            {LEGEND.map((l) => {
-              const lockedOn = l.kind === "camera";
-              const on = lockedOn || !hidden.includes(l.kind);
-              return (
-                <button
-                  key={l.kind} type="button" className={on ? "layer on" : "layer"} aria-pressed={on} disabled={lockedOn}
-                  title={lockedOn ? "CCTV points are always shown" : on ? `Hide ${l.label}` : `Show ${l.label}`}
-                  onClick={() => setHidden(on ? [...hidden, l.kind] : hidden.filter((k) => k !== l.kind))}
-                >
-                  <i style={{ background: KIND_COLORS[theme][l.kind] }} />
-                  {l.label}
-                  {lockedOn && <small> always on</small>}
-                </button>
-              );
-            })}
-            <button type="button" className={showBuses ? "layer on" : "layer"} aria-pressed={showBuses} onClick={() => setShowBuses(!showBuses)}>
-              <i className="bus" />
-              Bus routes
+      </main>
+
+      <div className="dock">
+        <section ref={planRef} className={planCollapsed ? "plan collapsed" : "plan"} aria-label="Trip">
+          {planCollapsed ? (
+            <button
+              type="button" className="plan-mini" aria-label="Edit trip"
+              onClick={() => {
+                setPlanOpen(true);
+                setSnap("peek");
+              }}
+            >
+              <span className="mini-route">
+                <b>{short(from)}</b>
+                <Icon name="right" size={14} />
+                <b>{short(to)}</b>
+              </span>
+              <span className="chip">
+                <Icon name={mode === "walk" ? "walk" : "car"} size={15} />
+                {timeLabel}
+                {teen && " · Teen"}
+              </span>
             </button>
-            <span className="layer-note"><i className="hollow" />Closed then</span>
-            <span className="layer-note"><i className="gap" />Nothing open</span>
+          ) : (
+            <>
+              <div className="plan-head">
+                <h1>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/icons/logo.svg" alt="" width={26} height={26} />
+                  Ghar Tak
+                </h1>
+                <div className="plan-actions">
+                  <InstallApp />
+                  <ThemeToggle />
+                  <button type="button" className="icon-btn" aria-label="How Ghar Tak works" onClick={() => setAbout(true)}>
+                    <Icon name="info" />
+                  </button>
+                  {!desktop && result && (
+                    <button type="button" className="icon-btn" aria-label="Done" onClick={() => setPlanOpen(false)}>
+                      <Icon name="x" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="plan-fields">
+                <PlaceSearch
+                  label="From" marker="A" value={from} bbox={meta?.bbox ?? null}
+                  placeholder="From: office, metro station, sector…" onPick={setFrom}
+                />
+                <PlaceSearch
+                  label="To" marker="B" value={to} bbox={meta?.bbox ?? null}
+                  placeholder="To: home, PG, hotel…" onPick={setTo}
+                />
+                <button
+                  type="button" className="swap" aria-label="Swap start and destination" disabled={!from && !to}
+                  onClick={() => {
+                    setFrom(to);
+                    setTo(from);
+                  }}
+                >
+                  <Icon name="swap" size={17} />
+                </button>
+              </div>
+              {!from && (
+                <button type="button" className="link locate-link" onClick={useMyLocation}>
+                  <Icon name="locate" size={15} />
+                  Use my location as the start
+                </button>
+              )}
+              <div className="plan-opts">
+                <div className="seg" role="radiogroup" aria-label="Travel mode">
+                  {(["walk", "drive"] as const).map((m) => (
+                    <button
+                      key={m} type="button" role="radio" aria-checked={mode === m}
+                      className={mode === m ? "on" : ""} onClick={() => setMode(m)}
+                    >
+                      <Icon name={m === "walk" ? "walk" : "car"} size={16} />
+                      {m === "walk" ? "Walk" : "Cab"}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button" className={preset !== "now" || timeOpen ? "chip on" : "chip"}
+                  onClick={() => setTimeOpen(!timeOpen)} aria-expanded={timeOpen} aria-label={`Leaving: ${timeLabel}. Change time`}
+                >
+                  <Icon name="clock" size={15} />
+                  {timeLabel}
+                </button>
+                <button
+                  type="button" className={teen ? "chip on" : "chip"} aria-pressed={teen} onClick={() => setTeen(!teen)}
+                  title="Teen mode: stricter ranking. Open, busy main roads first; short empty stretches only"
+                >
+                  <Icon name="teen" size={15} />
+                  Teen
+                </button>
+              </div>
+              {timeOpen && (
+                <div className="time-pop">
+                  <span className="row-label">Leaving</span>
+                  <div className="chips">
+                    {PRESETS.map((p) => (
+                      <button
+                        key={p.id} type="button" className={preset === p.id ? "chip on" : "chip"}
+                        onClick={() => {
+                          setPreset(p.id);
+                          setTimeOpen(false);
+                        }}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <input
+                      type="datetime-local" aria-label="Custom departure time (IST)"
+                      className={preset === "custom" ? "on" : ""} value={custom}
+                      onChange={(e) => {
+                        setCustom(e.target.value);
+                        setPreset("custom");
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {teen && (
+                <p className="teen-note">
+                  <b>Teen mode is on:</b> open, busy main roads rank first, and long empty stretches count more.
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        <section
+          className={dragH !== null ? "sheet dragging" : `sheet ${snap}`}
+          style={desktop ? undefined : { height: sheetH }}
+          aria-label="Routes"
+        >
+          {!desktop && (
+            <div
+              className="grab" onPointerDown={onGrabDown} onPointerMove={onGrabMove} onPointerUp={onGrabUp}
+              onPointerCancel={onGrabUp} role="button" tabIndex={0}
+              aria-label={snap === "full" ? "Make the panel smaller" : "Make the panel bigger"}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSnap(snap === "full" ? "half" : snap === "half" ? "full" : "half");
+                }
+              }}
+            >
+              <span className="handle" />
+            </div>
+          )}
+          <div className="sheet-body" ref={bodyRef} aria-live="polite">{body}</div>
+        </section>
+      </div>
+
+      <div className="map-tools">
+        <button
+          type="button" className={layersOpen ? "fab on" : "fab"} aria-label="Map layers" aria-expanded={layersOpen}
+          onClick={() => setLayersOpen(!layersOpen)}
+        >
+          <Icon name="layers" size={19} />
+        </button>
+        {layersOpen && (
+          <div className="layers" aria-label="Map layers">
+            <div className="layers-head">
+              <b>Show on map</b>
+              <button type="button" className="icon-btn" aria-label="Close" onClick={() => setLayersOpen(false)}><Icon name="x" size={16} /></button>
+            </div>
+            <div className="layers-grid">
+              {LEGEND.map((l) => {
+                const lockedOn = l.kind === "camera";
+                const on = lockedOn || !hidden.includes(l.kind);
+                return (
+                  <button
+                    key={l.kind} type="button" className={on ? "layer on" : "layer"} aria-pressed={on} disabled={lockedOn}
+                    title={lockedOn ? "CCTV points are always shown" : on ? `Hide ${l.label}` : `Show ${l.label}`}
+                    onClick={() => setHidden(on ? [...hidden, l.kind] : hidden.filter((k) => k !== l.kind))}
+                  >
+                    <i style={{ background: KIND_COLORS[theme][l.kind] }} />
+                    {l.label}
+                    {lockedOn && <small>always on</small>}
+                  </button>
+                );
+              })}
+              <button type="button" className={showBuses ? "layer on" : "layer"} aria-pressed={showBuses} onClick={() => setShowBuses(!showBuses)}>
+                <i className="bus" />
+                Bus routes
+              </button>
+            </div>
+            <div className="layers-key">
+              <span><i className="hollow" />Hollow: closed when you pass</span>
+              <span><i className="gap" />Red dashes: nothing open</span>
+            </div>
             {HIDEABLE.some((k) => hidden.includes(k)) && (
               <button type="button" className="link" onClick={() => setHidden([])}>Show all</button>
             )}
           </div>
-        </div>
-      </main>
+        )}
+      </div>
       <SosButton />
+    </div>
+  );
+}
+
+/** A score in a ring that fills to the score, coloured like the map. */
+function Ring({ score, label }: { score: number | null; label: string }) {
+  return (
+    <span
+      className="ring" role="img" aria-label={`${label} ${score ?? "not available"}`}
+      style={{ "--p": score ?? 0, "--c": scoreColor(score) } as React.CSSProperties}
+    >
+      <b>{score ?? "–"}</b>
+    </span>
+  );
+}
+
+/** "Why this route", in plain words, each line backed by the route's own numbers. */
+function WhyList({ r, fastest, mode, onHelp }: { r: ScoredRoute; fastest: ScoredRoute | null; mode: Mode; onHelp: () => void }) {
+  const s = r.stats;
+  const quiet = mode === "walk" ? 300 : 2500;
+  const light = r.components.light ?? 0;
+  const first = [...r.emergency].sort((a, b) => a.at - b.at)[0];
+  const items: { tone: "good" | "warn" | "bad"; icon: IconName; b: string; t: string }[] = [];
+  const vsFastest = fastest && fastest.id !== r.id ? `, vs ${fastest.stats.openPlaces} on the fastest route` : "";
+  items.push({
+    tone: s.openPlaces >= (fastest?.stats.openPlaces ?? 0) ? "good" : "warn", icon: "store",
+    b: `${s.openPlaces} place${s.openPlaces === 1 ? "" : "s"} open`, t: ` when you pass${vsFastest}`,
+  });
+  items.push({
+    tone: s.longestGap > quiet * 4 ? "bad" : s.longestGap > quiet ? "warn" : "good", icon: s.longestGap > quiet ? "alert" : "check",
+    b: s.longestGap >= 100 ? `Longest empty stretch: ${fmtDistance(s.longestGap)}` : "No long empty stretch",
+    t: s.longestGap >= 100 ? `${s.longestGapDark ? ", and it's dark" : ""}. Red dashes on the map` : "",
+  });
+  items.push({
+    tone: light >= 0.8 ? "good" : light >= 0.5 ? "warn" : "bad", icon: "bulb", b: lightLabel(r),
+    t: `: ${s.lamps} street lamp${s.lamps === 1 ? "" : "s"} mapped, ${s.meanRadiance >= 30 ? "bright" : s.meanRadiance >= 15 ? "moderate" : "dim"} on satellite`,
+  });
+  items.push({
+    tone: s.mainRoadShare >= 0.4 ? "good" : "warn", icon: "road", b: `${Math.round(s.mainRoadShare * 100)}% on main roads`,
+    t: s.smallRoadShare >= 0.5 ? `, ${Math.round(s.smallRoadShare * 100)}% internal lanes` : "",
+  });
+  if (r.components.cameras !== null) {
+    items.push({ tone: "good", icon: "cam", b: `${s.cameras} CCTV camera${s.cameras === 1 ? "" : "s"}`, t: " mapped beside the route" });
+  }
+  return (
+    <>
+      <ul className="why">
+        {items.map((it) => (
+          <li key={it.b}>
+            <span className={`why-ic ${it.tone}`}><Icon name={it.icon} size={15} /></span>
+            <span><b>{it.b}</b>{it.t}</span>
+          </li>
+        ))}
+      </ul>
+      {first ? (
+        <div className="help-peek">
+          <span className={`why-ic ${first.kind}`}><Icon name="shield" size={15} /></span>
+          <span className="hp-text">
+            <b>{first.name}</b>
+            <span className="muted">
+              {first.kind === "police" ? "Police" : "Hospital"} · {fmtDistance(first.at)} into the trip
+            </span>
+          </span>
+          {first.phone && <a className="hp-call" href={`tel:${first.phone}`}><Icon name="phone" size={14} />Call</a>}
+          <button type="button" className="link" onClick={onHelp}>All help</button>
+        </div>
+      ) : (
+        <p className="note">No hospital or police station mapped close to this route. In an emergency, call 112.</p>
+      )}
+    </>
+  );
+}
+
+function TeenBox({ r, mode, depart }: { r: ScoredRoute; mode: Mode; depart: string }) {
+  const s = r.stats;
+  const istHour = (new Date(depart).getTime() / 3_600_000 + 5.5) % 24;
+  const late = istHour >= 21 || istHour < 5;
+  const quietLimit = mode === "walk" ? 300 : 2500;
+  return (
+    <div className="teen-box">
+      <b>Teen mode</b>
+      <ul>
+        {s.longestGap > quietLimit && (
+          <li>
+            This route has a {fmtDistance(s.longestGap)} stretch with nothing open. Prefer a route with a higher teen score,
+            or a cab.
+          </li>
+        )}
+        {late && <li>It&apos;s late. Ask a parent or guardian to pick you up, or send them your trip before you leave.</li>}
+        <li>Use the button below to send your route and location to your guardians.</li>
+      </ul>
+      <HelplineList compact />
     </div>
   );
 }
@@ -566,7 +927,7 @@ export default function App() {
 const clock = (iso: string) =>
   new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
 
-function MetroBreakdown({ m, share }: { m: MetroOption; share: string }) {
+function MetroBreakdown({ m }: { m: MetroOption }) {
   const [leg1, leg2] = m.legs;
   // Any part of the ride between 10:30 pm and 6 am IST: last/first trains matter.
   const istH = (iso: string) => (new Date(iso).getTime() / 3_600_000 + 5.5) % 24;
@@ -576,7 +937,6 @@ function MetroBreakdown({ m, share }: { m: MetroOption; share: string }) {
   const a = m.assumptions;
   return (
     <div className="breakdown">
-      <Share text={share} />
       {late && (
         <div className="warn">
           This ride runs late at night. Ghar Tak has no train times, so check the last train from{" "}
@@ -614,48 +974,15 @@ function MetroBreakdown({ m, share }: { m: MetroOption; share: string }) {
   );
 }
 
-function Breakdown({ r, mode, teen, depart, children }: {
-  r: ScoredRoute; mode: Mode; teen: boolean; depart: string; children?: React.ReactNode;
-}) {
+/** The score's ingredients: plain facts, then each factor's value and weight. */
+function ScoreDetails({ r, mode }: { r: ScoredRoute; mode: Mode }) {
   const order: Component[] = ["activity", "gaps", "light", "roads", "help", "cameras", "transit"];
   const s = r.stats;
-  const [showFacts, setShowFacts] = usePref<boolean>("ghartak-show-details", true);
-  const istHour = (new Date(depart).getTime() / 3_600_000 + 5.5) % 24;
-  const late = istHour >= 21 || istHour < 5;
-  const quietLimit = mode === "walk" ? 300 : 2500;
   return (
     <div className="breakdown">
-      {teen && (
-        <div className="teen-box">
-          <b>Teen mode</b>
-          <ul>
-            {s.longestGap > quietLimit && (
-              <li>
-                This route has a {fmtDistance(s.longestGap)} stretch with nothing open. Prefer a route with a higher teen
-                score, or a cab.
-              </li>
-            )}
-            {late && <li>It&apos;s late. Ask a parent or guardian to pick you up, or send them your trip before you leave.</li>}
-            <li>Send your route and location to your guardians:</li>
-          </ul>
-          <div className="share"><TrustedContacts text={`[Teen mode] ${summary(r)[0]}. Route: ${typeof window !== "undefined" ? window.location.href : ""}`} /></div>
-          <HelplineList compact />
-        </div>
-      )}
-      {children}
-      <AlongRoute r={r} />
-      <RouteHelp points={r.emergency} total={r.distance} />
-      <div className="facts-head">
-        <span>Route details</span>
-        <button type="button" className="link" onClick={() => setShowFacts(!showFacts)} aria-expanded={showFacts}>
-          {showFacts ? "Hide" : "Show"}
-        </button>
-      </div>
-      {showFacts && (
-        <ul className="facts">
-          {summary(r).map((line) => <li key={line}>{line}</li>)}
-        </ul>
-      )}
+      <ul className="facts">
+        {summary(r).map((line) => <li key={line}>{line}</li>)}
+      </ul>
       <table className="bars">
         <tbody>
           {order

@@ -47,7 +47,7 @@ export function SosButton() {
   const alertContacts = async () => {
     const list = loadContacts();
     if (!list.length) {
-      setStatus("No trusted contacts saved yet. Add them from any route's “Add trusted contacts”.");
+      setStatus("No trusted contacts saved yet. Add them with “Send to my people” on any route.");
       return;
     }
     setStatus("Getting your location…");
