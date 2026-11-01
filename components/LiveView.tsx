@@ -53,7 +53,7 @@ export default function LiveView({ id }: { id: string }) {
       }
     };
     poll();
-    const t = setInterval(poll, 10_000);
+    const t = setInterval(poll, 15_000); // each check is one Redis command; 15 s keeps the free plan roomy
     const c = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       stop = true;
