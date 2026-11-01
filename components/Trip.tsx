@@ -32,6 +32,8 @@ export interface TripSession {
 const STORE = "ghartak-trip";
 const NAME_KEY = "ghartak-my-name";
 const CHECK_SECONDS = 60;
+/** How often the live link gets a new position (each update is two Redis commands). */
+const LIVE_EVERY_MS = 25_000;
 const MAX_AGE_MS = 12 * 3600_000;
 
 export function loadTrip(): TripSession | null {
@@ -302,7 +304,7 @@ export function TripPanel({ session, onPosition, onEnd }: {
       setGpsError(null);
       onPosition({ lon: f.lon, lat: f.lat, acc: f.acc });
       if (r.arrived) setArrived(true);
-      if (Date.now() - lastSent.current > 20_000) push();
+      if (Date.now() - lastSent.current > LIVE_EVERY_MS) push();
     };
     const onError = (e: GeolocationPositionError) =>
       setGpsError(e.code === e.PERMISSION_DENIED ? "Location permission was turned off." : "Can't get your location right now.");
