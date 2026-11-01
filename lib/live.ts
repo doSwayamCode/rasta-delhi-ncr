@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 /**
- * Live trip links. While a trip is on, the phone sends its position here every ~20 s, and anyone with
+ * Live trip links. While a trip is on, the phone sends its position here every ~25 s, and anyone with
  * the link (the person's trusted contacts) can watch it on /t/<id>. Stored in Upstash Redis (the same
  * store the feedback answers can use) and deleted automatically: 12 hours after the last update, or
  * 1 hour after the trip ends.
