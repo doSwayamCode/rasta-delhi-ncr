@@ -47,7 +47,8 @@ open places instead of 6"), and you decide.
   update.
 - **Route image:** Share → Route image makes a picture of the route on the real map, with its score and key
   facts, for WhatsApp or Instagram.
-- **Share a route:** the whole trip is in the URL.
+- **Share a route:** the shared link carries the whole trip. The address bar itself stays clean, so where someone
+  is going does not end up in browser history, screenshots or analytics; a reload of the tab still restores it.
 - **Light and dark mode:** follows the device by default.
 - **Feedback:** two-tap questions after each search, stored by the app and viewable at `/admin`.
 - **Installable app (PWA):**
@@ -119,7 +120,8 @@ npm run data
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis: needed for live trip links, and used for feedback answers (set automatically by Vercel's Upstash integration; `UPSTASH_REDIS_REST_URL`/`_TOKEN` also work) |
 | `FEEDBACK_FILE` | Where answers are stored on a host with a persistent disk (default `.data/feedback.jsonl`) |
 | `FEEDBACK_WEBHOOK_URL`, `FEEDBACK_SHEET_ID` | Override the Google Sheet set in `lib/sheet.ts` |
-| `OSRM_CAR_URL`, `OSRM_FOOT_URL` | Your own OSRM servers (recommended before launch) |
+| `OSRM_CAR_URL`, `OSRM_FOOT_URL` | Your own OSRM servers (recommended for heavy traffic) |
+| `ORS_API_KEY` | Backup router: when the public OSRM servers fail or refuse, routes come from [OpenRouteService](https://openrouteservice.org) instead (free key, 2,000 routes a day). Without it there is no backup. |
 
 ### Admin and feedback data
 

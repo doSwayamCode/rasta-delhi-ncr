@@ -56,11 +56,24 @@ function istInputValue(d: Date): string {
 }
 
 /**
- * The trip lives in the URL so it can be shared and reopened:
+ * A trip as a query string, used by shared links:
  * ?a=lon,lat&an=label&b=lon,lat&bn=label&m=walk|drive&t=ISO&r=routeIndex  (no t = leave now)
+ * The address bar itself stays clean: where someone is going should not sit in browser history,
+ * screenshots or analytics. The current trip is kept in this tab's sessionStorage so a reload
+ * brings it back.
  */
+const LAST_TRIP = "ghartak-last-trip";
+
 function readUrl() {
-  const q = new URLSearchParams(window.location.search);
+  let search = window.location.search;
+  if (!/[?&](a|b)=/.test(search)) {
+    try {
+      search = sessionStorage.getItem(LAST_TRIP) ?? search;
+    } catch {
+      // storage blocked
+    }
+  }
+  const q = new URLSearchParams(search);
   const pt = (v: string | null, label: string | null): Picked | null => {
     const m = v?.split(",").map(Number);
     if (!m || m.length !== 2 || m.some((x) => !Number.isFinite(x))) return null;
@@ -263,10 +276,15 @@ export default function App() {
     if (preset !== "custom") setCustom(istInputValue(depart ? new Date(depart) : new Date()));
   }, [preset, depart]);
 
-  // Mirror the trip into the address bar (without adding history entries).
+  // Keep the trip for a reload of this tab, and take a shared link's trip out of the address bar.
   useEffect(() => {
     if (!restored.current) return;
-    window.history.replaceState(null, "", tripUrl(from, to, mode, depart, result ? selected : null, teen));
+    try {
+      sessionStorage.setItem(LAST_TRIP, new URL(tripUrl(from, to, mode, depart, result ? selected : null, teen)).search);
+    } catch {
+      // storage blocked: a reload starts fresh
+    }
+    if (/[?&](a|b)=/.test(window.location.search)) window.history.replaceState(null, "", window.location.pathname);
   }, [from, to, mode, depart, selected, result, teen]);
 
   useEffect(() => {
@@ -707,7 +725,8 @@ export default function App() {
         />
       </main>
 
-      <div className="dock">
+      {/* Trips, places and contacts are private: Clarity replays show this panel masked. */}
+      <div className="dock" data-clarity-mask="True">
         <section ref={planRef} className={planCollapsed ? "plan collapsed" : "plan"} aria-label="Trip">
           {session ? (
             <div className="plan-mini trip-banner">

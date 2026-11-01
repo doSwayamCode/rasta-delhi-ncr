@@ -30,7 +30,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script
           type="text/javascript"
           dangerouslySetInnerHTML={{
-            __html: `(function(c,l,a,r,i,t,y){
+            // Microsoft Clarity, but never on a live trip page (someone's location), /admin, or a link that
+            // carries a trip (start and destination). The app keeps trips out of the address bar after that.
+            __html: `var p=location.pathname; if (p.indexOf("/t/")!==0 && p!=="/admin" && p.indexOf("/admin/")!==0 && !/[?&](a|b)=/.test(location.search)) (function(c,l,a,r,i,t,y){
         c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
         t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
