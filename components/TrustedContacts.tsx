@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Contact, MAX_CONTACTS as MAX, loadContacts as load, normalisePhone, saveContacts as save, sendToContacts } from "@/lib/contacts";
+import Icon from "./Icon";
 
 /**
  * "Send to all": one tap opens the phone's SMS app with every trusted contact filled in and the
@@ -49,7 +50,8 @@ export default function TrustedContacts({ text }: { text: string }) {
   return (
     <>
       <button type="button" className="btn primary" onClick={sendAll} disabled={busy}>
-        {list.length ? `Send to my ${list.length} contact${list.length === 1 ? "" : "s"}` : "Add trusted contacts"}
+        <Icon name="users" />
+        {list.length ? `Send to ${list.length} contact${list.length === 1 ? "" : "s"}` : "Send to my people"}
       </button>
       {list.length > 0 && (
         <button type="button" className="link" onClick={() => dialog.current?.showModal()}>

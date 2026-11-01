@@ -16,7 +16,7 @@ export function rushLevel(r: ScoredRoute): { label: string; detail: string } {
   return { label: level, detail: `${openPerKm.toFixed(1)} open places per km · ${buses} bus route${buses === 1 ? "" : "s"}` };
 }
 
-function lightLabel(r: ScoredRoute) {
+export function lightLabel(r: ScoredRoute) {
   const l = r.components.light ?? 0;
   return l >= 0.8 ? "Well lit" : l >= 0.5 ? "Partly lit" : "Dark";
 }

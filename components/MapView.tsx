@@ -21,15 +21,36 @@ interface Props {
   /** Place kinds hidden by the person. CCTV ("camera") is never hidden. */
   hidden: string[];
   showBuses: boolean;
+  /** Screen space covered by the floating panels, so routes are framed in the visible part of the map. */
+  padding: { top: number; bottom: number; left: number; right: number };
   onPick: (p: LngLat) => void;
   onMove: (which: "from" | "to", p: LngLat) => void;
   onSelect: (id: number) => void;
 }
 
+/** Fit padding: the panels' footprint plus a margin, shrunk if the visible area gets too small. */
+function inset(p: Props["padding"]) {
+  const el = document.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
+  const w = el?.clientWidth ?? 800, h = el?.clientHeight ?? 600;
+  const m = 36;
+  let { top, bottom, left, right } = { top: p.top + m, bottom: p.bottom + m, left: p.left + m, right: p.right + m };
+  if (h - top - bottom < 120) {
+    const k = Math.max(0, h - 120) / (top + bottom);
+    top *= k;
+    bottom *= k;
+  }
+  if (w - left - right < 120) {
+    const k = Math.max(0, w - 120) / (left + right);
+    left *= k;
+    right *= k;
+  }
+  return { top, bottom, left, right };
+}
+
 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 export default function MapView({
-  bbox, from, to, routes, metro, selected, theme, hidden, showBuses, onPick, onMove, onSelect,
+  bbox, from, to, routes, metro, selected, theme, hidden, showBuses, padding, onPick, onMove, onSelect,
 }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MlMap | null>(null);
@@ -40,6 +61,8 @@ export default function MapView({
   const latest = useRef({ routes, metro, selected, theme, bbox, hidden, showBuses });
   latest.current = { routes, metro, selected, theme, bbox, hidden, showBuses };
   const styleTheme = useRef<Theme | null>(null);
+  const pad = useRef(padding);
+  pad.current = padding;
 
   useEffect(() => {
     if (!el.current || map.current) return;
@@ -157,9 +180,9 @@ export default function MapView({
       }
     }
     if (from && to && !routes.length) {
-      m.fitBounds(new maplibregl.LngLatBounds(from, from).extend(to), { padding: 80, maxZoom: 15, duration: 600 });
+      m.fitBounds(new maplibregl.LngLatBounds(from, from).extend(to), { padding: inset(pad.current), maxZoom: 15, duration: 600 });
     } else if (from && !to) {
-      m.easeTo({ center: from, zoom: Math.max(m.getZoom(), 13) });
+      m.easeTo({ center: from, zoom: Math.max(m.getZoom(), 13), padding: inset(pad.current) });
     }
   }, [from, to, routes.length]);
 
@@ -181,8 +204,11 @@ export default function MapView({
     for (const r of routes) for (const c of r.coords) b.extend(c);
     for (const l of metro?.legs ?? []) for (const c of l.coords) b.extend(c);
     for (const sg of metro?.ride.segments ?? []) for (const c of sg.coords) b.extend(c);
-    m.fitBounds(b, { padding: { top: 60, bottom: 60, left: 60, right: 60 }, maxZoom: 16, duration: 700 });
-  }, [routes, metro]);
+    // Wait a moment so the panels have settled (a phone's plan card collapses as results arrive).
+    const t = setTimeout(() => m.fitBounds(b, { padding: inset(pad.current), maxZoom: 16, duration: 700 }), 120);
+    return () => clearTimeout(t);
+    // Re-frame when the panels change size (a phone's sheet snapping up or down), not on every pixel.
+  }, [routes, metro, padding.top, padding.bottom, padding.left]);
 
   return <div ref={el} className="map" />;
 }
