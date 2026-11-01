@@ -465,6 +465,12 @@ export default function App() {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
+  const contactUs = (
+    <p className="contact-dev">
+      <a href="mailto:swayamgupta999@gmail.com">Contact us</a>
+    </p>
+  );
+
   let body: React.ReactNode;
   if (session) {
     body = (
@@ -499,9 +505,7 @@ export default function App() {
         <About meta={meta} />
         <h3 className="section-title">Helplines</h3>
         <HelplineList />
-        <p className="contact-dev">
-          <a href="mailto:swayamgupta999@gmail.com">Contact us</a>
-        </p>
+        {contactUs}
       </div>
     );
   } else if (!from || !to) {
@@ -519,9 +523,7 @@ export default function App() {
           Bhiwadi (the dashed box on the map).
         </p>
         <button type="button" className="link" onClick={() => setAbout(true)}>How the score works and where the data comes from</button>
-        <p className="contact-dev">
-          <a href="mailto:swayamgupta999@gmail.com">Contact us</a>
-        </p>
+        {contactUs}
       </div>
     );
   } else if (loading) {
@@ -574,6 +576,7 @@ export default function App() {
             ) : (
               <p className="note">Checking how this route changes through the evening…</p>
             ))}
+          {contactUs}
         </div>
         <div className="actions">
           <button type="button" className="btn start-trip" onClick={() => setTripStart(true)}>
@@ -596,7 +599,7 @@ export default function App() {
             <p className="muted">{fmtDistance(selMetro.walkDistance)} on foot · {selMetro.board.station} → {selMetro.alight.station}</p>
           </div>
         </div>
-        <div className="tab-body"><MetroBreakdown m={selMetro} /></div>
+        <div className="tab-body"><MetroBreakdown m={selMetro} />{contactUs}</div>
         <div className="actions"><Share text={shareFor(selMetro.id)} /></div>
       </div>
     );
@@ -678,6 +681,7 @@ export default function App() {
           weigh options, not as a guarantee. In an emergency call <a href="tel:112">112</a>.{" "}
           <button type="button" className="link" onClick={() => setAbout(true)}>How the score works</button>
         </p>
+        {contactUs}
       </div>
     );
   }
